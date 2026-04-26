@@ -1,0 +1,4 @@
+com\auction\server\dao\impl\SQLiteUserDAO$1.class
+com\auction\server\network\ClientHandler$1.class
+com\auction\server\factory\ItemFactory$1.class
+com\auction\server\factory\UserFactory$1.class

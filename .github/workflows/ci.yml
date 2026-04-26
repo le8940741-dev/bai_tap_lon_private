@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build common module
+        run: mvn -pl auction-common install -q
+
+      - name: Build & test server (no JavaFX needed)
+        run: mvn -pl auction-server test
+
+      - name: Build client (compile only – no display for JavaFX)
+        run: mvn -pl auction-client compile -q
+
+      - name: Upload server fat-jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: auction-server-fat-jar
+          path: auction-server/target/*-fat.jar
+
+      - name: Test summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: JUnit Results
+          path: '**/target/surefire-reports/*.xml'
+          reporter: java-junit
