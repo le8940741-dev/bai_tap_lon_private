@@ -25,6 +25,7 @@ public class ItemDTO {
     private String category;   // "ELECTRONICS", "ART", or "VEHICLE"
     private long sellerId;     // the User.id of the Seller who created this item
     private String sellerName; // denormalised for display; avoids a join on the client side
+    private String imageUrl;   // optional image URL or local file path
     private String extraData;  // optional JSON blob for category-specific fields
     private String createdAt;  // ISO-8601 timestamp when the item was persisted
 
@@ -53,6 +54,9 @@ public class ItemDTO {
     /** The seller's username — displayed directly without a lookup. */
     public String getSellerName() { return sellerName; }
 
+    /** Optional image URL or local file path shown on the auction detail screen. */
+    public String getImageUrl() { return imageUrl; }
+
     /**
      * Optional free-form JSON data for category-specific attributes.
      * Example for ELECTRONICS: {"brand":"Sony","model":"WH-1000XM5","warranty":"2yr"}
@@ -70,6 +74,7 @@ public class ItemDTO {
     public void setCategory(String category) { this.category = category; }
     public void setSellerId(long sellerId) { this.sellerId = sellerId; }
     public void setSellerName(String sellerName) { this.sellerName = sellerName; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setExtraData(String extraData) { this.extraData = extraData; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 }

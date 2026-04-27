@@ -144,9 +144,12 @@ public final class DatabaseManager {
                     description TEXT,
                     category    TEXT NOT NULL CHECK(category IN ('ELECTRONICS','ART','VEHICLE')),
                     seller_id   INTEGER NOT NULL REFERENCES users(id),
+                    image_url   TEXT,
                     extra_data  TEXT,
                     created_at  TEXT NOT NULL
                 )""");
+
+            ensureColumnExists("items", "image_url TEXT");
 
             st.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS auctions (
@@ -195,6 +198,17 @@ public final class DatabaseManager {
                      '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
                      'admin@auction.local', 'ADMIN', 1,
                      strftime('%Y-%m-%dT%H:%M:%S', 'now'))""");
+        }
+    }
+
+    private void ensureColumnExists(String table, String columnDefinition) throws SQLException {
+        try (Statement alter = connection.createStatement()) {
+            alter.executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + columnDefinition);
+        } catch (SQLException e) {
+            String message = e.getMessage();
+            if (message == null || !message.toLowerCase().contains("duplicate column name")) {
+                throw e;
+            }
         }
     }
 }

@@ -108,6 +108,7 @@ public final class Requests {
         public String name;        // display name shown in the auction list
         public String description; // longer text about the item
         public String category;    // "ELECTRONICS", "ART", or "VEHICLE"
+        public String imageUrl;    // optional image URL or local file path
         public String extraData;   // optional JSON blob for category-specific fields
                                    // e.g. {"brand":"Sony","warranty":"2yr"} for electronics
 

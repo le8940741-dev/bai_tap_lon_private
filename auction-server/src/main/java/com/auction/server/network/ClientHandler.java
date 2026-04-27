@@ -302,7 +302,7 @@ public final class ClientHandler implements Runnable, AuctionObserver {
         requireAuth();
         CreateItemRequest req = msg.parsePayload(gson, CreateItemRequest.class);
         Item item = itemService.createItem(req.name, req.description,
-                req.category, req.extraData, currentUser);
+                req.category, req.extraData, req.imageUrl, currentUser);
         send(Message.reply(msg.getRequestId(), MessageType.ITEM_CREATED,
                 DtoMapper.toDto(item), gson));
     }

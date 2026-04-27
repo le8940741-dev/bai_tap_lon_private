@@ -167,8 +167,10 @@ public final class SceneManager {
             } else {
                 scene.setRoot(root);
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load auction detail view", e);
+            primaryStage.show();
+        } catch (Exception e) {
+            AlertUtil.error("Navigation Error",
+                    "Failed to open the auction detail screen.\n\n" + e.getMessage());
         }
     }
 

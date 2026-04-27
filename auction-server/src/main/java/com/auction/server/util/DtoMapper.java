@@ -71,6 +71,7 @@ public final class DtoMapper {
         dto.setCategory(item.getCategory().name()); // enum → string
         dto.setSellerId(item.getSellerId());
         dto.setSellerName(item.getSellerName());
+        dto.setImageUrl(item.getImageUrl());
         dto.setExtraData(item.getExtraData());
         if (item.getCreatedAt() != null) dto.setCreatedAt(FMT.format(item.getCreatedAt()));
         return dto;

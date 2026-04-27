@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.auction.server.service.BidServiceTest" time="0.362" tests="6" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.auction.server.service.BidServiceTest" time="0.276" tests="6" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="25"/>
     <property name="sun.cpu.isalist" value="amd64"/>
     <property name="sun.jnu.encoding" value="Cp1252"/>
-    <property name="java.class.path" value="C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server\target\test-classes;C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server\target\classes;C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-common\target\auction-common-1.0.0.jar;C:\Users\Aquatl\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar;C:\Users\Aquatl\.m2\repository\org\xerial\sqlite-jdbc\3.44.1.0\sqlite-jdbc-3.44.1.0.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-api\2.0.9\slf4j-api-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-simple\2.0.9\slf4j-simple-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter\5.10.0\junit-jupiter-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-api\5.10.0\junit-jupiter-api-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\opentest4j\opentest4j\1.3.0\opentest4j-1.3.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-commons\1.10.0\junit-platform-commons-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-params\5.10.0\junit-jupiter-params-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-engine\5.10.0\junit-jupiter-engine-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-engine\1.10.0\junit-platform-engine-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\mockito\mockito-core\5.6.0\mockito-core-5.6.0.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy\1.14.8\byte-buddy-1.14.8.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy-agent\1.14.8\byte-buddy-agent-1.14.8.jar;C:\Users\Aquatl\.m2\repository\org\objenesis\objenesis\3.3\objenesis-3.3.jar;"/>
+    <property name="java.class.path" value="C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server\target\test-classes;C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server\target\classes;C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-common\target\auction-common-1.0.0.jar;C:\Users\Aquatl\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar;C:\Users\Aquatl\.m2\repository\org\xerial\sqlite-jdbc\3.44.1.0\sqlite-jdbc-3.44.1.0.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-api\2.0.9\slf4j-api-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-simple\2.0.9\slf4j-simple-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter\5.10.0\junit-jupiter-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-api\5.10.0\junit-jupiter-api-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\opentest4j\opentest4j\1.3.0\opentest4j-1.3.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-commons\1.10.0\junit-platform-commons-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-params\5.10.0\junit-jupiter-params-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-engine\5.10.0\junit-jupiter-engine-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-engine\1.10.0\junit-platform-engine-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\mockito\mockito-core\5.6.0\mockito-core-5.6.0.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy\1.14.8\byte-buddy-1.14.8.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy-agent\1.14.8\byte-buddy-agent-1.14.8.jar;C:\Users\Aquatl\.m2\repository\org\objenesis\objenesis\3.3\objenesis-3.3.jar;"/>
     <property name="java.vm.vendor" value="Oracle Corporation"/>
     <property name="sun.arch.data.model" value="64"/>
     <property name="user.variant" value=""/>
@@ -15,9 +15,9 @@
     <property name="sun.java.launcher" value="SUN_STANDARD"/>
     <property name="user.country" value="US"/>
     <property name="sun.boot.library.path" value="C:\Program Files\Java\jdk-25.0.2\bin"/>
-    <property name="sun.java.command" value="C:\Users\Aquatl\AppData\Local\Temp\surefire1947519613231764095\surefirebooter-20260426194313938_3.jar C:\Users\Aquatl\AppData\Local\Temp\surefire1947519613231764095 2026-04-26T19-43-13_178-jvmRun1 surefire-20260426194313938_1tmp surefire_0-20260426194313938_2tmp"/>
+    <property name="sun.java.command" value="C:\Users\Aquatl\AppData\Local\Temp\surefire924518053116255244\surefirebooter-20260427082936189_3.jar C:\Users\Aquatl\AppData\Local\Temp\surefire924518053116255244 2026-04-27T08-29-34_514-jvmRun1 surefire-20260427082936189_1tmp surefire_0-20260427082936189_2tmp"/>
     <property name="jdk.debug" value="release"/>
-    <property name="surefire.test.class.path" value="C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server\target\test-classes;C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server\target\classes;C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-common\target\auction-common-1.0.0.jar;C:\Users\Aquatl\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar;C:\Users\Aquatl\.m2\repository\org\xerial\sqlite-jdbc\3.44.1.0\sqlite-jdbc-3.44.1.0.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-api\2.0.9\slf4j-api-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-simple\2.0.9\slf4j-simple-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter\5.10.0\junit-jupiter-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-api\5.10.0\junit-jupiter-api-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\opentest4j\opentest4j\1.3.0\opentest4j-1.3.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-commons\1.10.0\junit-platform-commons-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-params\5.10.0\junit-jupiter-params-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-engine\5.10.0\junit-jupiter-engine-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-engine\1.10.0\junit-platform-engine-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\mockito\mockito-core\5.6.0\mockito-core-5.6.0.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy\1.14.8\byte-buddy-1.14.8.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy-agent\1.14.8\byte-buddy-agent-1.14.8.jar;C:\Users\Aquatl\.m2\repository\org\objenesis\objenesis\3.3\objenesis-3.3.jar;"/>
+    <property name="surefire.test.class.path" value="C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server\target\test-classes;C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server\target\classes;C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-common\target\auction-common-1.0.0.jar;C:\Users\Aquatl\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar;C:\Users\Aquatl\.m2\repository\org\xerial\sqlite-jdbc\3.44.1.0\sqlite-jdbc-3.44.1.0.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-api\2.0.9\slf4j-api-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\slf4j\slf4j-simple\2.0.9\slf4j-simple-2.0.9.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter\5.10.0\junit-jupiter-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-api\5.10.0\junit-jupiter-api-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\opentest4j\opentest4j\1.3.0\opentest4j-1.3.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-commons\1.10.0\junit-platform-commons-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-params\5.10.0\junit-jupiter-params-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\jupiter\junit-jupiter-engine\5.10.0\junit-jupiter-engine-5.10.0.jar;C:\Users\Aquatl\.m2\repository\org\junit\platform\junit-platform-engine\1.10.0\junit-platform-engine-1.10.0.jar;C:\Users\Aquatl\.m2\repository\org\mockito\mockito-core\5.6.0\mockito-core-5.6.0.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy\1.14.8\byte-buddy-1.14.8.jar;C:\Users\Aquatl\.m2\repository\net\bytebuddy\byte-buddy-agent\1.14.8\byte-buddy-agent-1.14.8.jar;C:\Users\Aquatl\.m2\repository\org\objenesis\objenesis\3.3\objenesis-3.3.jar;"/>
     <property name="sun.cpu.endian" value="little"/>
     <property name="user.home" value="C:\Users\Aquatl"/>
     <property name="user.language" value="en"/>
@@ -25,12 +25,12 @@
     <property name="java.version.date" value="2026-01-20"/>
     <property name="java.home" value="C:\Program Files\Java\jdk-25.0.2"/>
     <property name="file.separator" value="\"/>
-    <property name="basedir" value="C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server"/>
+    <property name="basedir" value="C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server"/>
     <property name="java.vm.compressedOopsMode" value="Zero based"/>
     <property name="line.separator" value="&#10;"/>
     <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
     <property name="java.specification.name" value="Java Platform API Specification"/>
-    <property name="surefire.real.class.path" value="C:\Users\Aquatl\AppData\Local\Temp\surefire1947519613231764095\surefirebooter-20260426194313938_3.jar"/>
+    <property name="surefire.real.class.path" value="C:\Users\Aquatl\AppData\Local\Temp\surefire924518053116255244\surefirebooter-20260427082936189_3.jar"/>
     <property name="user.script" value=""/>
     <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
     <property name="java.runtime.version" value="25.0.2+10-LTS-69"/>
@@ -45,7 +45,7 @@
     <property name="java.vendor.url.bug" value="https://bugreport.java.com/bugreport/"/>
     <property name="java.io.tmpdir" value="C:\Users\Aquatl\AppData\Local\Temp\"/>
     <property name="java.version" value="25.0.2"/>
-    <property name="user.dir" value="C:\Users\Aquatl\OneDrive\Desktop\root\btvn\auction-system-commented\auction-system\auction-server"/>
+    <property name="user.dir" value="C:\Users\Aquatl\OneDrive\Desktop\root\Github\bai_tap_lon_private\auction-server"/>
     <property name="os.arch" value="amd64"/>
     <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
     <property name="sun.os.patch.level" value=""/>
@@ -59,17 +59,17 @@
     <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
     <property name="java.class.version" value="69.0"/>
   </properties>
-  <testcase name="placeBid_valid_succeedsAndUpdatesPrice" classname="com.auction.server.service.BidServiceTest" time="0.022">
-    <system-err><![CDATA[19:43:16.173 [main] INFO DatabaseManager - Database initialised at jdbc:sqlite:C:\Users\Aquatl\AppData\Local\Temp\auction_test_5871855091682181431.db
-19:43:16.180 [main] INFO AuctionService - Restored 0 auction schedule(s) from database
+  <testcase name="placeBid_valid_succeedsAndUpdatesPrice" classname="com.auction.server.service.BidServiceTest" time="0.017">
+    <system-err><![CDATA[08:29:37.845 [main] INFO DatabaseManager - Database initialised at jdbc:sqlite:C:\Users\Aquatl\AppData\Local\Temp\auction_test_14653386849012601164.db
+08:29:37.850 [main] INFO AuctionService - Restored 0 auction schedule(s) from database
 ]]></system-err>
   </testcase>
-  <testcase name="placeBid_tooLow_throwsBidException" classname="com.auction.server.service.BidServiceTest" time="0.003"/>
-  <testcase name="placeBid_alreadyLeading_throwsBidException" classname="com.auction.server.service.BidServiceTest" time="0.003"/>
-  <testcase name="placeBid_secondBidder_succeedsAndBecomesLeader" classname="com.auction.server.service.BidServiceTest" time="0.011"/>
-  <testcase name="setAutoBid_firesImmediately_whenCurrentPriceBelowMax" classname="com.auction.server.service.BidServiceTest" time="0.018">
-    <system-err><![CDATA[19:43:16.269 [main] DEBUG BidService - Auto-bid: auction=1 bidder=alice_test price=210.0
+  <testcase name="placeBid_tooLow_throwsBidException" classname="com.auction.server.service.BidServiceTest" time="0.002"/>
+  <testcase name="placeBid_alreadyLeading_throwsBidException" classname="com.auction.server.service.BidServiceTest" time="0.002"/>
+  <testcase name="placeBid_secondBidder_succeedsAndBecomesLeader" classname="com.auction.server.service.BidServiceTest" time="0.009"/>
+  <testcase name="setAutoBid_firesImmediately_whenCurrentPriceBelowMax" classname="com.auction.server.service.BidServiceTest" time="0.014">
+    <system-err><![CDATA[08:29:37.917 [main] DEBUG BidService - Auto-bid: auction=1 bidder=alice_test price=210.0
 ]]></system-err>
   </testcase>
-  <testcase name="getBidHistory_returnsAllBids_inAscendingOrder" classname="com.auction.server.service.BidServiceTest" time="0.005"/>
+  <testcase name="getBidHistory_returnsAllBids_inAscendingOrder" classname="com.auction.server.service.BidServiceTest" time="0.003"/>
 </testsuite>

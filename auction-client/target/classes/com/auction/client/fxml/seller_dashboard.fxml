@@ -46,6 +46,9 @@
                     <TextField fx:id="itemNameField" promptText="Item name" styleClass="input-field"/>
                     <TextArea  fx:id="itemDescField" promptText="Description"
                                styleClass="input-field" prefHeight="70" wrapText="true"/>
+                    <TextField fx:id="itemImageField"
+                               promptText="Image URL or local file path"
+                               styleClass="input-field"/>
                     <HBox spacing="10" alignment="CENTER_LEFT">
                         <ComboBox fx:id="itemCategoryCombo" styleClass="input-field"/>
                         <TextField fx:id="itemExtraField" promptText="Extra info (JSON)"

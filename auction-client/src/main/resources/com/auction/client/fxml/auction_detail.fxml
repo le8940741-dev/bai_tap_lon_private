@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?import javafx.scene.chart.*?>
 <?import javafx.scene.control.*?>
+<?import javafx.scene.image.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.text.*?>
 
@@ -22,6 +23,13 @@
 
             <!-- Left: info + bidding -->
             <VBox spacing="12" styleClass="detail-left">
+                <StackPane prefHeight="220" maxWidth="380">
+                    <ImageView fx:id="itemImageView" fitWidth="380" fitHeight="220"
+                               preserveRatio="true" smooth="true"
+                               visible="false" managed="false"/>
+                    <Label fx:id="itemImagePlaceholder" text="No product image."
+                           styleClass="table-placeholder" wrapText="true"/>
+                </StackPane>
                 <Text fx:id="labelTitle" styleClass="item-title" wrappingWidth="380"/>
                 <HBox spacing="8">
                     <Label text="Category:" styleClass="form-label"/>

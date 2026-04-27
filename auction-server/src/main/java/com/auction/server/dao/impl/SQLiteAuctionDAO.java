@@ -47,6 +47,7 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
             i.description   AS item_desc,
             i.category      AS item_category,
             i.seller_id     AS item_seller_id,
+            i.image_url     AS item_image_url,
             i.extra_data    AS item_extra,
             i.created_at    AS item_created,
             s.username      AS seller_name,
@@ -208,6 +209,7 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
         item.setDescription(rs.getString("item_desc"));
         item.setSellerId(rs.getLong("item_seller_id"));
         item.setSellerName(rs.getString("seller_name")); // same seller as auction
+        item.setImageUrl(rs.getString("item_image_url"));
         item.setExtraData(rs.getString("item_extra"));
         item.setCreatedAt(DateUtil.parse(rs.getString("item_created")));
         a.setItem(item);

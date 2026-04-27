@@ -55,6 +55,7 @@ public final class SellerDashboardController implements SceneManager.Refreshable
     @FXML private TextField     itemNameField;
     @FXML private TextArea      itemDescField;
     @FXML private ComboBox<String> itemCategoryCombo;
+    @FXML private TextField     itemImageField;
     @FXML private TextField     itemExtraField;
 
     // ── Create auction form ───────────────────────────────────────────────────
@@ -105,6 +106,7 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         String name     = itemNameField.getText().trim();
         String desc     = itemDescField.getText().trim();
         String category = itemCategoryCombo.getValue();
+        String imageUrl = itemImageField.getText().trim();
         String extra    = itemExtraField.getText().trim();
 
         if (name.isEmpty()) { statusLabel.setText("Item name is required."); return; }
@@ -112,7 +114,9 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         ServerConnection conn = ClientSession.getInstance().getConnection();
         CreateItemRequest req = new CreateItemRequest();
         req.name = name; req.description = desc;
-        req.category = category; req.extraData = extra;
+        req.category = category;
+        req.imageUrl = imageUrl.isEmpty() ? null : imageUrl;
+        req.extraData = extra;
 
         Message msg = Message.of(MessageType.CREATE_ITEM, req, conn.getGson());
         conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
@@ -124,7 +128,10 @@ public final class SellerDashboardController implements SceneManager.Refreshable
             ItemDTO created = resp.parsePayload(conn.getGson(), ItemDTO.class);
             myItems.add(created);
             statusLabel.setText("Item '" + created.getName() + "' created.");
-            itemNameField.clear(); itemDescField.clear(); itemExtraField.clear();
+            itemNameField.clear();
+            itemDescField.clear();
+            itemImageField.clear();
+            itemExtraField.clear();
         }));
     }
 

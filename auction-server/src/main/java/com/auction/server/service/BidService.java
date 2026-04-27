@@ -107,18 +107,17 @@ public final class BidService {
             validateBidState(auction, amount, bidder.getId());
             auctionService.markRunning(auction);  // OPEN → RUNNING on first bid
 
-            // Persist the manual bid and update the auction's in-memory + DB price.
+            // Persist the manual bid and push it immediately to watchers so the
+            // live UI can show the same sequence that was written to the DB.
             BidTransaction bid = persistBid(auction, bidder.getId(),
                     bidder.getUsername(), amount, false);
+            eventBus.publishBidPlaced(auction, bid);
 
             // Let competing auto-bidders respond (may fire multiple bids recursively).
-            resolveAutoBids(auction, bid);
+            resolveAutoBids(auction);
 
             // Check anti-snipe: if bid arrived in last 30s, extend end time by 60s.
             auctionService.applyAntiSnipe(auction);
-
-            // Broadcast the final auction state (after auto-bids may have changed price).
-            eventBus.publishBidPlaced(auction, bid);
 
             return bid;
         } finally {
@@ -168,7 +167,7 @@ public final class BidService {
 
             // If the new ceiling already beats the current price, fire immediately.
             if (maxBid > auction.getCurrentPrice()) {
-                resolveAutoBids(auction, null);
+                resolveAutoBids(auction);
                 auctionService.applyAntiSnipe(auction);
             }
 
@@ -230,7 +229,7 @@ public final class BidService {
      * @param auction        the auction whose price just changed (mutable — updated in-place)
      * @param triggeringBid  the bid that triggered this round (unused here, for logging)
      */
-    private void resolveAutoBids(Auction auction, BidTransaction triggeringBid) {
+    private void resolveAutoBids(Auction auction) {
         List<AutoBid> active = autoBidDAO.findActiveByAuctionId(auction.getId());
         if (active.isEmpty()) return;
 
@@ -259,12 +258,13 @@ public final class BidService {
 
         BidTransaction autoBidTx = persistBid(
                 auction, winner.getBidderId(), winner.getBidderName(), newPrice, true);
+        eventBus.publishBidPlaced(auction, autoBidTx);
 
         log.debug("Auto-bid: auction={} bidder={} price={}",
                 auction.getId(), winner.getBidderName(), newPrice);
 
         // Recurse: the new leader's bid may prompt another auto-bidder to respond.
-        resolveAutoBids(auction, autoBidTx);
+        resolveAutoBids(auction);
     }
 
     // ── Persistence helper ─────────────────────────────────────────────────────

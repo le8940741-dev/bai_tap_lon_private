@@ -30,16 +30,17 @@ public final class SQLiteItemDAO implements ItemDAO {
     @Override
     public synchronized Item save(Item item) {
         String sql = """
-            INSERT INTO items (name, description, category, seller_id, extra_data, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO items (name, description, category, seller_id, image_url, extra_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """;
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setString(1, item.getName());
             ps.setString(2, item.getDescription());
             ps.setString(3, item.getCategory().name()); // "ELECTRONICS", "ART", or "VEHICLE"
             ps.setLong(4, item.getSellerId());
-            ps.setString(5, item.getExtraData());         // may be null — stored as NULL in DB
-            ps.setString(6, item.getCreatedAt().toString());
+            ps.setString(5, item.getImageUrl());
+            ps.setString(6, item.getExtraData());         // may be null — stored as NULL in DB
+            ps.setString(7, item.getCreatedAt().toString());
             ps.executeUpdate();
             try (ResultSet keys = conn().createStatement().executeQuery("SELECT last_insert_rowid()")) {
                 if (keys.next()) item.setId(keys.getLong(1));
@@ -102,6 +103,7 @@ public final class SQLiteItemDAO implements ItemDAO {
         item.setDescription(rs.getString("description"));
         item.setSellerId(rs.getLong("seller_id"));
         item.setSellerName(rs.getString("seller_name")); // from the JOIN alias
+        item.setImageUrl(rs.getString("image_url"));
         item.setExtraData(rs.getString("extra_data"));
         item.setCreatedAt(DateUtil.parse(rs.getString("created_at")));
         return item;

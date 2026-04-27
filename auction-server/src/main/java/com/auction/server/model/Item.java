@@ -28,6 +28,7 @@ public abstract class Item extends Entity {
     private String description; // longer free-text description
     private long sellerId;     // the Seller who created this item
     private String sellerName; // denormalised for display
+    private String imageUrl;   // optional image URL or local file path
     /** Free-form JSON for category-specific fields, stored as TEXT in SQLite. */
     private String extraData;
 
@@ -64,6 +65,9 @@ public abstract class Item extends Entity {
 
     public String getSellerName() { return sellerName; }
     public void setSellerName(String sellerName) { this.sellerName = sellerName; }
+
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 
     /**
      * JSON blob for category-specific fields.

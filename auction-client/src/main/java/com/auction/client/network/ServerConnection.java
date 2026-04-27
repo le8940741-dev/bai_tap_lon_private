@@ -74,8 +74,6 @@ public final class ServerConnection {
 
         /** Called (on FX thread) when anti-sniping extends the watched auction's end time. */
         void onAuctionExtended(AuctionExtendedNotice notice);
-
-        void onBidPlaced(BidResponse response);
     }
 
     // Thread-safe Gson — reused for all serialisation/deserialisation.

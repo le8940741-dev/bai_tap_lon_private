@@ -43,7 +43,8 @@ public final class ItemService {
      *                          or category string doesn't match any ItemCategory
      */
     public Item createItem(String name, String description,
-                           String category, String extraData, User seller) {
+                           String category, String extraData,
+                           String imageUrl, User seller) {
         // Only Sellers may list items — Bidders and Admins are rejected.
         if (seller.getRole() != UserRole.SELLER)
             throw new AuctionException("Only sellers can create items");
@@ -57,6 +58,7 @@ public final class ItemService {
         item.setDescription(description);
         item.setSellerId(seller.getId());
         item.setSellerName(seller.getUsername());
+        item.setImageUrl(imageUrl == null || imageUrl.isBlank() ? null : imageUrl.trim());
         item.setExtraData(extraData);      // may be null — stored as NULL in DB
 
         return itemDAO.save(item); // DAO sets item.id from AUTOINCREMENT key
