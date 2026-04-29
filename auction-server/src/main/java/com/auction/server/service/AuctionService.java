@@ -84,14 +84,20 @@ public final class AuctionService {
      * Create and persist a new auction, then schedule its automatic close task.
      *
      * Initial status:
-     *   - OPEN if startTime is in the future (bids not yet accepted)
-     *   - RUNNING if startTime is now or in the past (immediately open for bids)
+     *   - OPEN if startTime is in the future.
+     *   - RUNNING if startTime is now or in the past.
      *
-     * @param item         the already-persisted item being auctioned
+     * Important nuance: in the current implementation, OPEN is mainly an
+     * initial lifecycle/display state. BidService does not re-check startTime
+     * before accepting a bid, so the first accepted bid can still flip an OPEN
+     * auction to RUNNING early via markRunning().
+     *
+     * @param item          the already-persisted item being auctioned
      * @param startingPrice floor price; bids must exceed this
-     * @param startTime    when bidding opens
-     * @param endTime      when the auction auto-closes
-     * @param seller       the Seller creating this auction
+     * @param startTime     requested opening time stored on the auction and used
+     *                      to decide the initial status
+     * @param endTime       when the auction auto-closes
+     * @param seller        the Seller creating this auction
      */
     public Auction createAuction(Item item, double startingPrice,
                                   LocalDateTime startTime, LocalDateTime endTime,
@@ -113,8 +119,8 @@ public final class AuctionService {
         auction.setSellerName(seller.getUsername());
         auction.setStatus(
                 LocalDateTime.now().isBefore(startTime)
-                        ? AuctionStatus.OPEN     // future start — not yet accepting bids
-                        : AuctionStatus.RUNNING  // past start — accepting bids immediately
+                        ? AuctionStatus.OPEN     // future start time; initial "not started" state
+                        : AuctionStatus.RUNNING  // start time already reached; accept bids immediately
         );
 
         auctionDAO.save(auction);       // persist and get id

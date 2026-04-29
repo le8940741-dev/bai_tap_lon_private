@@ -118,12 +118,14 @@ public final class Requests {
     /**
      * Payload for MessageType.CREATE_AUCTION.
      * The item must already exist (created via CREATE_ITEM).
-     * startTime and endTime are ISO-8601 strings: "2026-04-22T15:30:00"
+     * startTime and endTime are ISO-8601 strings: "2026-04-22T15:30:00".
+     * The server stores startTime on the Auction and uses it to choose the
+     * initial OPEN/RUNNING status when the auction is created.
      */
     public static final class CreateAuctionRequest {
         public long itemId;        // ID of an item the seller already created
         public double startingPrice; // opening bid floor; bids must exceed this
-        public String startTime;   // when the auction becomes RUNNING
+        public String startTime;   // requested start timestamp used for initial status/display
         public String endTime;     // when the auction auto-closes (scheduler fires)
 
         public CreateAuctionRequest() {}

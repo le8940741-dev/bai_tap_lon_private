@@ -29,7 +29,9 @@ import javafx.stage.Stage;            // the OS window
  *   6. Register a close handler to disconnect cleanly when the window is closed.
  *
  * COMMAND-LINE CUSTOMISATION:
- *   java -jar ... -Dserver.host=192.168.1.10 -Dserver.port=8080
+ *   System properties must be passed before -jar:
+ *   java -Dserver.host=192.168.1.10 -Dserver.port=8080 -jar auction-client.jar
+ *   If omitted, the client falls back to localhost:9090.
  *
  * USED BY: JVM (as the main class declared in the fat-jar manifest).
  */

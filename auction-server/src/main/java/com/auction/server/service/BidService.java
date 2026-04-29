@@ -80,13 +80,16 @@ public final class BidService {
      * Steps (all performed while holding the auction's ReentrantLock):
      *   1. Acquire the per-auction lock.
      *   2. Reload the auction from DB (get fresh state, not stale cache).
-     *   3. Validate: user can bid, auction is open, amount > currentPrice.
-     *   4. Transition OPEN → RUNNING on first bid.
-     *   5. Persist the bid (BidTransaction row + updated auction price).
-     *   6. Run auto-bid resolution (competing auto-bidders may respond).
-     *   7. Check anti-snipe (may extend end time + reschedule close task).
-     *   8. Broadcast the final state (after auto-bids settle) to all watchers.
-     *   9. Release the lock.
+     *   3. Validate: bidder may bid, auction is not terminal, endTime has not
+     *      passed, amount exceeds currentPrice, and the current leader is not
+     *      bidding against themselves.
+     *   4. Transition OPEN -> RUNNING on the first accepted bid.
+     *   5. Persist the manual bid and broadcast it immediately.
+     *   6. Run auto-bid resolution; each generated auto-bid is also persisted
+     *      and broadcast in the order it is applied.
+     *   7. Check anti-snipe after the price settles (may extend end time and
+     *      reschedule the close task).
+     *   8. Release the lock.
      *
      * @param auctionId the auction to bid on
      * @param amount    the proposed bid (must exceed currentPrice)
@@ -197,6 +200,11 @@ public final class BidService {
      *   - Current time must be before endTime (belt-and-suspenders; scheduler also closes).
      *   - amount must be strictly greater than currentPrice.
      *   - The leading bidder cannot bid again (they're already winning).
+     *
+     * Deliberate note about current behaviour:
+     *   This method does not enforce startTime. If an auction is still OPEN but
+     *   passes the checks below, placeBid() will accept the bid and then call
+     *   AuctionService.markRunning() to promote it to RUNNING.
      */
     private void validateBidState(Auction auction, double amount, long bidderId) {
         if (auction.getStatus() == AuctionStatus.FINISHED
@@ -223,11 +231,12 @@ public final class BidService {
      *   3. Filter to those whose maxBid > currentPrice (can still afford to bid).
      *   4. Build PriorityQueue: highest maxBid first, earlier registration breaks ties.
      *   5. Poll the winner; compute their next bid = min(currentPrice + increment, maxBid).
-     *   6. Persist as an auto BidTransaction; recurse for the new price.
+     *   6. Persist the auto BidTransaction and broadcast it immediately.
+     *   7. Recurse for the new price.
      *   Recursion terminates when no eligible auto-bidder remains.
      *
-     * @param auction        the auction whose price just changed (mutable — updated in-place)
-     * @param triggeringBid  the bid that triggered this round (unused here, for logging)
+     * @param auction the live Auction object whose currentPrice, leader fields,
+     *                and watcher-visible state are updated in-place
      */
     private void resolveAutoBids(Auction auction) {
         List<AutoBid> active = autoBidDAO.findActiveByAuctionId(auction.getId());

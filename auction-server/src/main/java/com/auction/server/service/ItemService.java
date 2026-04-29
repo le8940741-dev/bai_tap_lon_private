@@ -37,6 +37,10 @@ public final class ItemService {
      * @param description optional; shown in the detail screen left panel
      * @param category    "ELECTRONICS", "ART", or "VEHICLE" (case-insensitive)
      * @param extraData   optional JSON blob for category-specific attributes
+     *                   (for example brand/model/year); stored as plain TEXT
+     * @param imageUrl    optional image reference stored as plain text; may be a
+     *                   public URL or a local demo path, and blank input is
+     *                   normalised to null before persistence
      * @param seller      the authenticated Seller creating this item
      * @return the persisted Item with its database-assigned id
      * @throws AuctionException if seller is not a Seller role, or name is blank,

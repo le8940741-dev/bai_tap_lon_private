@@ -73,7 +73,7 @@ public final class SceneManager {
         View(String path) { this.fxmlPath = path; }
     }
 
-    private static Stage primaryStage; // the single OS window — set in ClientMain.init()
+    private static Stage primaryStage; // the app's single window; assigned via SceneManager.init() from ClientMain.start()
 
     // Cache: View → loaded root node (avoiding re-parsing FXML on every navigation).
     private static final Map<View, Parent> cachedRoots       = new HashMap<>();
@@ -83,7 +83,10 @@ public final class SceneManager {
 
     private SceneManager() {} // utility class — no instances
 
-    /** Must be called once in ClientMain.start() before any switchTo() call. */
+    /**
+     * Must be called once in ClientMain.start() before any switchTo() call.
+     * Stores the single Stage shared by every screen in the client.
+     */
     public static void init(Stage stage) { primaryStage = stage; }
 
     /** Returns the primary Stage (used by controllers that need to resize the window). */
