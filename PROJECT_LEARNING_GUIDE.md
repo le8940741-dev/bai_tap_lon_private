@@ -36,6 +36,14 @@ The important architectural idea is that the client does not directly access the
 database. The client talks to the server over a persistent TCP socket. The server
 validates requests, updates SQLite, and sends responses or live broadcasts.
 
+Why this matters: this is not just an implementation detail. It is the main
+security and consistency decision in the project. If every client could connect
+to the database directly, every client would need database credentials, every
+client would need to duplicate validation rules, and a modified client could try
+to update prices or users without going through server-side checks. By forcing
+all database access through the server, there is one trusted place where auction
+rules are enforced.
+
 ## 2. Repository Structure
 
 ```text
@@ -95,6 +103,57 @@ That separation is deliberate. It means the client can only know about safe
 shared types such as `UserDTO`, `AuctionDTO`, `Message`, `Requests`, and
 `Responses`. It cannot accidentally use server-only objects such as `User` with
 `passwordHash`.
+
+### Why The Repository Is Split This Way
+
+The repository is split by responsibility, not just by file type.
+
+`auction-common` exists because the client and server need to agree on the same
+network contract. Both sides must know what a `Message` looks like, what
+`MessageType.LOGIN` means, and what fields are inside `LoginRequest` or
+`AuctionDTO`. Putting these classes in a shared module avoids copying the same
+classes into both client and server.
+
+`auction-server` owns trusted logic. It contains domain models, DAOs, SQLite
+code, password hashing, bidding rules, scheduling, auto-bid logic, and socket
+handlers. The client should not be able to import these classes because they are
+server-side implementation details.
+
+`auction-client` owns presentation and user interaction. It contains JavaFX
+controllers, FXML screens, CSS, the client socket connection, scene navigation,
+and client-side session state. The server should not need JavaFX dependencies.
+
+This structure gives three benefits:
+
+- Clear dependency direction: client and server both depend on common, but not
+  on each other.
+- Safer boundaries: server-only data such as password hashes cannot accidentally
+  leak into client code.
+- Easier builds: CI can compile the JavaFX client separately from server tests,
+  and the server can run without JavaFX installed as a runtime concern.
+
+### Alternatives To This Structure
+
+Single module:
+
+Putting all classes in one module would be simpler at the start, but the client
+could accidentally use server-only classes. It would also mix JavaFX, SQLite,
+server networking, tests, and protocol objects in one classpath. That becomes
+harder to reason about as the project grows.
+
+Two modules, client and server only:
+
+This avoids one big module, but then shared protocol classes must either be
+duplicated or placed in one side and imported by the other. If the client depends
+on the server just to use `AuctionDTO`, it also sees server internals. If the
+server depends on the client, the server gets UI dependencies it does not need.
+
+Many tiny modules:
+
+For example, separate modules for `domain`, `dao`, `service`, `network`, and
+`ui`. That can be useful in large systems, but here it would add Maven complexity
+without much benefit. Three modules are enough to enforce the important boundary:
+shared protocol, server, and client.
 
 ## 3. Maven: The Build System
 
@@ -205,9 +264,489 @@ The normal flow is:
 For live bid updates, the server can also send messages without the client first
 asking. Those are broadcasts.
 
+## Architectural Decisions In Detail
+
+This section explains why the project was built this way and what alternatives
+were possible.
+
+### Decision 1: Client-Server Architecture
+
+Chosen design:
+
+```text
+JavaFX client -> TCP protocol -> Java server -> SQLite database
+```
+
+The client is not trusted. A user can modify their own client program, inspect
+network traffic, or send custom messages. Because of that, important rules must
+live on the server:
+
+- whether the user is authenticated.
+- whether the user is a bidder, seller, or admin.
+- whether the auction is still active.
+- whether a bid is higher than the current price.
+- whether the leading bidder is trying to bid again.
+- whether an admin can ban a user.
+- whether an auction should close or extend.
+
+The server is the trusted gatekeeper. The database is behind the server, not
+behind the client.
+
+Alternative: client directly accesses SQLite.
+
+This would mean the JavaFX app opens `auction.db` directly. It is bad for this
+project because:
+
+- Multiple clients on different machines cannot safely share one local SQLite
+  file.
+- Every client would need database access.
+- Users could modify the client and write illegal database rows.
+- Business rules would need to be duplicated in each client.
+- Real-time broadcasts would still require some separate communication system.
+
+Alternative: put everything in one desktop app.
+
+A single local app with UI and database in the same process is simpler, but it is
+not an online auction system. It cannot naturally support multiple users bidding
+against each other from different clients.
+
+Alternative: serverless or cloud database directly from client.
+
+Some modern apps connect clients directly to Firebase or Supabase-like services.
+That can work when the backend provides strong security rules and real-time
+channels. This Java project is designed to demonstrate server-side Java,
+sockets, JDBC, services, DAOs, and concurrency, so implementing the server
+yourself is more educational and gives full control over bidding rules.
+
+### Decision 2: TCP Sockets Instead Of REST Polling
+
+Chosen design:
+
+```text
+persistent TCP socket + JSON messages + server-push broadcasts
+```
+
+An auction is real-time by nature. If one bidder places a bid, every watching
+client should see the new price immediately.
+
+With a persistent TCP socket:
+
+- the client connects once.
+- the connection stays open.
+- the client can send requests anytime.
+- the server can send broadcasts anytime.
+- there is no need to repeatedly ask "has anything changed?"
+
+This fits `WATCH_AUCTION`, `BID_BROADCAST`, `AUCTION_END_BROADCAST`, and
+`AUCTION_EXTENDED`.
+
+Alternative: REST over HTTP with polling.
+
+REST is usually request-response. The client sends an HTTP request, the server
+returns an HTTP response, then the request is over. To get live auction updates,
+the client would need to poll:
+
+```text
+GET /auctions/5
+GET /auctions/5
+GET /auctions/5
+```
+
+every second or every few seconds.
+
+Problems:
+
+- More wasted requests when nothing changes.
+- Higher delay if polling interval is too slow.
+- More server load if polling interval is fast.
+- More complicated UI state because updates arrive only on polling ticks.
+
+Your intuition is correct: REST polling needs constant updating, while TCP lets
+the server push events when something actually happens.
+
+Alternative: REST plus WebSocket.
+
+This is a common production design:
+
+```text
+REST for normal commands
+WebSocket for live updates
+```
+
+It is strong, but it introduces two protocols instead of one. For this project,
+raw TCP with JSON gives both request-response and push events through one
+connection.
+
+Alternative: Server-Sent Events.
+
+Server-Sent Events can push updates from server to browser/client over HTTP, but
+they are one-way: server to client. The client still needs normal HTTP requests
+for commands. This project benefits from one bidirectional connection.
+
+Alternative: RMI, gRPC, or message brokers.
+
+Java RMI is Java-specific and less transparent than JSON messages. gRPC is
+powerful but adds Protocol Buffers and generated code. Message brokers such as
+RabbitMQ or Kafka are overkill for a student-scale desktop auction app.
+
+### Decision 3: Raw TCP Instead Of HTTP
+
+Raw TCP means the project uses Java's `Socket` and `ServerSocket` directly. It
+does not use an HTTP server, servlet container, Spring MVC, or browser-style
+request handling.
+
+The project defines its own simple application protocol:
+
+```text
+one JSON Message per line
+```
+
+This is why `readLine()` and `println()` are enough for message boundaries.
+
+Why raw TCP is reasonable here:
+
+- Java has built-in socket APIs.
+- The protocol is small and easy to inspect.
+- The connection is naturally bidirectional.
+- Server-push events are straightforward.
+- It demonstrates networking fundamentals directly.
+
+Trade-offs:
+
+- You must design your own message format.
+- You must handle request IDs yourself.
+- You must handle malformed messages yourself.
+- You do not get HTTP tooling, routing, status codes, headers, or browser support.
+- Firewalls and proxies tend to understand HTTP better than custom TCP ports.
+
+For a production public web API, HTTP/WebSocket would usually be more standard.
+For this project's learning goals and real-time desktop requirement, raw TCP is
+defensible.
+
+### Decision 4: JSON Instead Of Java Object Serialization
+
+Chosen design:
+
+```text
+Java object -> Gson -> JSON text -> TCP -> Gson -> Java object
+```
+
+JSON is human-readable. You can log it, inspect it, and debug it.
+
+Alternative: Java built-in object serialization.
+
+Java object serialization can send Java objects over streams, but it is brittle
+and unsafe for network protocols:
+
+- Both sides must have compatible Java classes.
+- It is harder to inspect manually.
+- It has a history of security problems when deserializing untrusted input.
+- It locks the protocol tightly to Java.
+
+Alternative: Protocol Buffers, Avro, or MessagePack.
+
+These are more efficient and stricter, but they add schema files, generated code,
+or extra tooling. JSON is enough for this project's scale.
+
+### Decision 5: DTOs Instead Of Sending Domain Models
+
+Chosen design:
+
+```text
+server domain model -> DtoMapper -> common DTO -> JSON -> client
+```
+
+DTOs are used because the network contract should be separate from the server's
+internal model.
+
+Benefits:
+
+- `UserDTO` does not expose `passwordHash`.
+- `AuctionDTO` can embed `ItemDTO` for convenient display.
+- `BidDTO` can include `timestampMillis` for charting.
+- The client only depends on stable, safe data structures.
+- Server models can change without automatically changing the network protocol.
+
+Alternative: send server domain objects directly.
+
+This is risky because domain objects may contain private or server-only fields.
+It also couples the client to the server's internal model. If the server changes
+`Auction`, the client might break even if the UI did not need that change.
+
+Alternative: use `Map<String, Object>` everywhere.
+
+This is flexible but unsafe. You lose compile-time checking, autocomplete, and
+clear documentation of required fields.
+
+### Decision 6: Layered Server Instead Of All Logic In `ClientHandler`
+
+Chosen design:
+
+```text
+ClientHandler -> Service -> DAO -> SQLite
+```
+
+`ClientHandler` handles protocol and socket concerns. Services handle business
+rules. DAOs handle SQL.
+
+Benefits:
+
+- Each class has a smaller job.
+- Business rules can be tested without sockets.
+- SQL can be changed without rewriting business rules.
+- The server's request dispatch stays understandable.
+
+Alternative: put all logic in `ClientHandler`.
+
+This would be fast to write at first, but it would mix JSON parsing, auth checks,
+bidding rules, SQL statements, DTO mapping, and socket writes in one class. It
+would become hard to test and hard to modify.
+
+Alternative: use a large framework such as Spring.
+
+Spring would provide dependency injection, controllers, repositories, validation,
+and more. That is useful for larger applications, but this project's dependency
+graph is small. Manual wiring in `AuctionServer` is simpler and makes the
+relationships visible.
+
+### Decision 7: DAO Interfaces Over Direct JDBC In Services
+
+Chosen design:
+
+```text
+UserService depends on UserDAO
+SQLiteUserDAO implements UserDAO
+```
+
+Benefits:
+
+- Services do not contain SQL strings.
+- Tests can mock DAO interfaces.
+- SQLite could be replaced by another database implementation later.
+- The business API is clearer than raw SQL calls.
+
+Alternative: direct JDBC in services.
+
+This reduces the number of files, but it mixes business rules with persistence.
+For example, `BidService` is already complex because of locking and auto-bids.
+Adding SQL details directly into it would make it much harder to understand.
+
+Alternative: ORM such as Hibernate/JPA.
+
+An ORM maps Java objects to database tables automatically. It can reduce SQL
+boilerplate in large systems, but it introduces annotations, lazy loading,
+sessions, transactions, and hidden SQL behavior. For this project, handwritten
+JDBC is more explicit and easier to trace while learning.
+
+### Decision 8: SQLite Instead Of MySQL/PostgreSQL
+
+Chosen design:
+
+```text
+SQLite file database + JDBC
+```
+
+SQLite is chosen because it is:
+
+- zero-configuration.
+- stored in one file.
+- easy to run on a student machine.
+- easy to reset for tests.
+- enough for one Java server process.
+
+The server is the only process that writes to the database, so SQLite's
+single-writer limitation is acceptable here.
+
+Alternative: PostgreSQL or MySQL.
+
+These are stronger production databases. They handle many concurrent writers,
+network connections, permissions, indexing, backups, and larger deployments
+better. But they require installing and running a database server, configuring
+users/passwords, and managing service startup. That is unnecessary for this
+assignment-scale app.
+
+Alternative: in-memory collections only.
+
+This would simplify persistence but data would disappear when the server exits.
+It would also fail to demonstrate JDBC, SQL, schemas, and integration tests.
+
+Alternative: file storage with JSON or CSV.
+
+This is simple for small data, but weak for relationships. Auctions reference
+items and users; bids reference auctions and bidders. SQL handles these
+relationships much better.
+
+### Decision 9: Manual Dependency Injection
+
+Chosen design:
+
+```java
+SQLiteUserDAO userDAO = new SQLiteUserDAO();
+UserService userService = new UserService(userDAO);
+```
+
+in `AuctionServer`.
+
+Benefits:
+
+- Easy to see what depends on what.
+- No framework setup.
+- No annotations required.
+- Tests can still inject mocks manually.
+
+Alternative: create dependencies inside each service.
+
+For example, `UserService` could do `new SQLiteUserDAO()` internally. That would
+make tests harder because you could not easily replace the DAO with a mock.
+
+Alternative: Spring or Guice dependency injection.
+
+Useful in larger projects, but extra complexity here.
+
+### Decision 10: JavaFX Desktop UI
+
+Chosen design:
+
+```text
+JavaFX + FXML + controllers
+```
+
+This gives a desktop app with tables, forms, charts, image views, and scene
+switching. FXML separates layout from controller logic.
+
+Alternative: console UI.
+
+Much simpler, but poor for auctions because users need lists, forms, countdowns,
+bid history, and visual feedback.
+
+Alternative: web frontend.
+
+A web UI with HTML/CSS/JavaScript would be common in production. It would also
+make WebSocket a natural choice for live updates. But it would require a web
+server/API design and frontend technology outside this Java desktop project.
+
+Alternative: Swing.
+
+Swing is older and still works, but JavaFX has better modern UI controls,
+property binding, FXML, and chart support.
+
+### Decision 11: Observer/Event Bus For Broadcasts
+
+Chosen design:
+
+```text
+BidService publishes event -> AuctionEventBus -> watching ClientHandlers
+```
+
+This decouples bidding logic from network clients.
+
+`BidService` should not need to know:
+
+- how many clients are watching.
+- which sockets they use.
+- how to serialize broadcast JSON.
+
+It only says "a bid was placed." The event bus handles the fan-out.
+
+Alternative: let `BidService` directly loop through client sockets.
+
+That would tightly couple business logic to networking. It would also make
+testing harder and risk slow socket writes blocking bid processing.
+
+### Decision 12: Per-Auction Locks Instead Of Global Lock
+
+Chosen design:
+
+```text
+one ReentrantLock per auction
+```
+
+This protects bid updates for the same auction while allowing different auctions
+to process bids independently.
+
+Alternative: no lock.
+
+Unsafe. Two bids could read the same old price and both be accepted incorrectly.
+
+Alternative: one global lock.
+
+Correct but unnecessarily slow. Bidding on auction 1 would block bidding on
+auction 2 even though they are unrelated.
+
+Alternative: rely only on database constraints.
+
+Possible in some systems with transactions and row-level locks, but SQLite's
+concurrency model is limited. The explicit Java lock is easier to reason about
+here.
+
+### Decision 13: Scheduled Tasks For Auction Closing
+
+Chosen design:
+
+```text
+ScheduledExecutorService schedules closeAuction at endTime
+```
+
+This means the auction closes even if no client is currently viewing it.
+
+Alternative: close only when a user opens or refreshes the auction.
+
+This is simpler, but stale auctions may remain `RUNNING` long after their end
+time until someone happens to view them.
+
+Alternative: database trigger.
+
+SQLite triggers do not run by themselves at a future time. They run when a SQL
+operation happens, so they do not solve timed closing alone.
+
+Alternative: external job scheduler.
+
+Cron or a background worker service would be useful in larger deployments, but
+too much infrastructure for this project.
+
+### Decision 14: JUnit, Mockito, And Some Real SQLite Tests
+
+Chosen design:
+
+```text
+unit tests with mocks + integration tests with temp SQLite
+```
+
+Mocks are good for checking business rules quickly. Real SQLite tests are good
+for checking SQL and object mapping.
+
+Alternative: only manual testing.
+
+Manual testing is slow and misses regressions.
+
+Alternative: only mock tests.
+
+Fast, but SQL bugs can survive because mocks do not execute SQL.
+
+Alternative: only full integration tests.
+
+More realistic, but slower and harder to isolate when a failure happens.
+
 ## 5. `auction-common`: The Shared Protocol
 
 The common module is the shared language between client and server.
+
+The reason this module exists is that protocol classes must be identical on both
+sides. If the client thinks `PlaceBidRequest` has fields named `auctionId` and
+`amount`, but the server expects `auction_id` and `bidAmount`, communication
+breaks. A shared module lets the compiler enforce agreement.
+
+The common module should stay small. It should contain only things both sides
+are allowed to know:
+
+- DTOs.
+- message envelope.
+- message type enum.
+- request payloads.
+- response payloads.
+
+It should not contain server-only implementation details such as DAOs,
+`PasswordUtil`, database schema, or service classes.
 
 ### DTOs
 
@@ -335,6 +874,12 @@ For example:
 These classes intentionally have public fields and little behavior. They are
 wire payloads, not rich domain models.
 
+Why not put validation logic in request classes? Because client-side validation
+can improve usability, but server-side validation is the only trusted validation.
+A malicious or modified client could still send invalid JSON. The real rules
+belong in server services such as `UserService`, `AuctionService`, and
+`BidService`.
+
 ## 6. JSON and Gson
 
 The project uses Gson to convert Java objects to JSON and JSON back to Java
@@ -380,6 +925,180 @@ So the type tells the program how to decode the payload.
 ## 7. TCP Sockets
 
 This project does not use REST or HTTP. It uses raw TCP sockets.
+
+### What TCP Is
+
+TCP stands for Transmission Control Protocol.
+
+It is a low-level network protocol that gives two programs a reliable ordered
+byte stream.
+
+Reliable means TCP handles details such as:
+
+- splitting data into packets.
+- resending lost packets.
+- keeping packets in order.
+- detecting connection loss.
+
+Ordered byte stream means that if one side writes:
+
+```text
+hello
+world
+```
+
+the other side receives the bytes in that same order. TCP does not understand
+Java objects, JSON, auctions, users, or bids. It only moves bytes.
+
+### What A TCP Server Is
+
+A TCP server is a program that listens on a port and accepts TCP connections.
+
+In this project:
+
+```text
+AuctionServer listens on port 9090
+```
+
+The server uses `ServerSocket`. A client uses `Socket` to connect.
+
+When a client connects, the server gets a new `Socket` representing that one
+client connection. The original `ServerSocket` keeps listening for more clients.
+
+### What A Raw TCP Socket Is
+
+"Raw TCP socket" means the project uses Java's socket API directly instead of a
+higher-level application protocol such as HTTP.
+
+Raw TCP gives only a byte stream. It does not provide:
+
+- URLs.
+- HTTP methods such as `GET` or `POST`.
+- request headers.
+- response status codes like `200` or `404`.
+- automatic message boundaries.
+- routing such as `/api/auctions/5`.
+
+Because raw TCP does not define message boundaries, this project creates its own
+simple rule:
+
+```text
+one JSON Message per line
+```
+
+That is why the sender uses `println(json)` and the receiver uses `readLine()`.
+
+### What HTTP Is
+
+HTTP stands for Hypertext Transfer Protocol.
+
+It is an application-level protocol built on top of TCP. HTTP defines a standard
+request-response format.
+
+Example HTTP request:
+
+```http
+GET /auctions/5 HTTP/1.1
+Host: localhost:9090
+Accept: application/json
+```
+
+Example HTTP response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"id":5,"currentPrice":250.0}
+```
+
+HTTP adds useful conventions:
+
+- methods: `GET`, `POST`, `PUT`, `DELETE`.
+- paths: `/users`, `/auctions/5`, `/bids`.
+- headers: metadata about the request or response.
+- status codes: `200`, `400`, `401`, `404`, `500`.
+- broad tool support in browsers, servers, proxies, and debugging tools.
+
+### What REST Is
+
+REST means Representational State Transfer.
+
+REST is not a network protocol by itself. It is a style of designing HTTP APIs.
+
+In a REST-style auction API, you might have:
+
+```text
+GET    /auctions          -> list auctions
+GET    /auctions/5        -> get auction detail
+POST   /auctions          -> create auction
+POST   /auctions/5/bids   -> place bid
+GET    /auctions/5/bids   -> get bid history
+```
+
+REST treats server data as resources identified by URLs. Clients make requests
+to read or change those resources.
+
+### Why TCP Fits This Project Better Than Plain REST
+
+Plain REST is naturally request-response. The client asks, the server answers,
+and then the exchange is finished.
+
+Auctions need real-time server-push events:
+
+- new bid placed.
+- auction extended by anti-sniping.
+- auction ended.
+
+With plain REST, the client would usually poll:
+
+```text
+GET /auctions/5
+wait 1 second
+GET /auctions/5
+wait 1 second
+GET /auctions/5
+```
+
+This works, but it is inefficient and less immediate.
+
+If the polling interval is 5 seconds, users may see a bid up to 5 seconds late.
+If the polling interval is 0.2 seconds, the server receives many requests even
+when no bid has changed.
+
+The TCP design avoids that:
+
+```text
+client sends WATCH_AUCTION once
+server sends BID_BROADCAST only when a bid actually happens
+```
+
+So your reasoning is correct: real-time events are the main reason TCP is chosen
+over plain REST polling.
+
+### Why Not REST Plus WebSocket
+
+REST plus WebSocket would also be a good architecture.
+
+Typical production design:
+
+```text
+REST:
+  login
+  list auctions
+  create item
+  create auction
+  place bid
+
+WebSocket:
+  live bid updates
+  auction ended
+  auction extended
+```
+
+This is more standard for web apps, but it means the project must implement two
+communication styles. The current raw TCP design handles both normal
+request-response and server-push broadcasts on one connection.
 
 Important files:
 
@@ -608,6 +1327,19 @@ database
 
 Each layer has a job.
 
+The purpose of this layering is to prevent one class from needing to understand
+everything. For example, placing a bid touches networking, JSON, authentication,
+business rules, database writes, event broadcasts, and DTO conversion. If all of
+that lived in one method, the code would be fragile. Layers let each part focus:
+
+- network code translates messages.
+- services enforce rules.
+- DAOs persist data.
+- DTO mappers prepare safe response objects.
+
+This also makes change safer. If you replace SQLite later, most service code can
+stay the same. If you redesign the JavaFX screen, server services do not care.
+
 ### Network Layer
 
 The network layer knows about sockets, JSON messages, request IDs, and
@@ -670,6 +1402,19 @@ public final class UserService {
 This makes testing easier. `UserServiceTest` can pass a Mockito mock `UserDAO`
 instead of a real SQLite DAO.
 
+DAO interfaces are chosen over direct JDBC in services because services should
+describe business actions in domain language:
+
+```text
+find user by username
+save bid
+update current price
+find active auto-bids
+```
+
+not low-level SQL mechanics. The SQL still exists, but it is isolated in
+`SQLite*DAO` classes.
+
 ## 11. SQLite and JDBC
 
 SQLite is a file-based database. In this project, the database file is:
@@ -679,6 +1424,62 @@ auction.db
 ```
 
 The server uses JDBC to talk to SQLite.
+
+### Why SQLite Was Chosen
+
+SQLite is a practical choice for this project because the database is local to
+one server process. You do not need to install PostgreSQL or MySQL, create users,
+open database ports, or run a separate database service.
+
+That matters for a student project because setup friction can become larger than
+the programming problem itself. With SQLite, the server can create or open
+`auction.db` automatically.
+
+SQLite is not chosen because it is the strongest possible database. It is chosen
+because it is enough for this scope:
+
+- one server process.
+- moderate data volume.
+- simple deployment.
+- easy testing with temporary files.
+- standard SQL tables and relationships.
+
+For a production auction platform with many servers and heavy traffic,
+PostgreSQL or MySQL would usually be better.
+
+### Why JDBC Was Chosen
+
+JDBC is Java's standard database API. It is lower-level than an ORM, but it makes
+the actual SQL visible.
+
+This project uses JDBC because:
+
+- it teaches how Java talks to relational databases.
+- it keeps dependencies small.
+- it makes queries and updates explicit.
+- it works directly with SQLite through `sqlite-jdbc`.
+- it is easy to use inside DAO classes.
+
+The main trade-off is that JDBC requires more boilerplate than an ORM. You write
+SQL, prepare statements, read result sets, and map rows manually. For this
+project, that explicitness is useful because you can trace exactly what happens.
+
+### Why Not An ORM
+
+An ORM such as Hibernate/JPA could map Java objects to tables automatically.
+
+That is useful in large business applications, but it adds concepts that are not
+needed here:
+
+- entity annotations.
+- persistence context.
+- lazy loading.
+- cascading.
+- generated SQL.
+- transaction/session lifecycle.
+
+The server's persistence needs are small and direct. Handwritten DAO methods are
+easier to follow.
 
 Important file:
 
@@ -890,6 +1691,38 @@ BidTransaction -> BidDTO
 
 This layer matters because the server model is not the same as the network
 contract.
+
+### Why DTOs Are An Architectural Boundary
+
+DTOs are chosen because the data that travels over the network should be
+deliberately designed. The server's internal classes are allowed to contain
+implementation details. The client's classes should receive only what the UI is
+allowed to know.
+
+Without DTOs, it becomes too easy to expose fields accidentally. For example,
+sending a full `User` object could expose `passwordHash`. Sending a full
+`Auction` object could expose server-only state or Java types that are awkward
+for the client to parse.
+
+DTOs also let the server shape data for the UI. `AuctionDTO` embeds `ItemDTO`
+because the client usually wants auction and item details together. `BidDTO`
+contains both a formatted timestamp and `timestampMillis` because the table and
+chart need different timestamp forms.
+
+Alternative: send domain models directly.
+
+This couples client and server too tightly and risks leaking private fields.
+
+Alternative: send untyped JSON maps.
+
+This is flexible, but the compiler cannot help you. A typo in a field name may
+only fail at runtime.
+
+Alternative: create separate DTO classes for every screen.
+
+This can be useful in bigger systems, but it would create too many nearly
+identical classes here. The current DTOs are broad enough for this app without
+being unsafe.
 
 Example:
 
