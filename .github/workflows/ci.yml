@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -21,23 +26,22 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build common module
-        run: mvn -pl auction-common install -q
+      - name: Build and test server
+        run: mvn -B -pl auction-server -am package
 
-      - name: Build & test server (no JavaFX needed)
-        run: mvn -pl auction-server test
-
-      - name: Build client (compile only – no display for JavaFX)
-        run: mvn -pl auction-client compile -q
+      - name: Compile client
+        run: mvn -B -pl auction-client -am compile -DskipTests
 
       - name: Upload server fat-jar
         uses: actions/upload-artifact@v4
         with:
           name: auction-server-fat-jar
           path: auction-server/target/*-fat.jar
+          if-no-files-found: error
 
       - name: Test summary
-        if: always()
+        if: always() && hashFiles('**/target/surefire-reports/*.xml') != ''
+        continue-on-error: true
         uses: dorny/test-reporter@v1
         with:
           name: JUnit Results
