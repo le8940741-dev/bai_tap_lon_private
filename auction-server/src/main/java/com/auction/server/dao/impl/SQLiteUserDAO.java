@@ -28,6 +28,8 @@ public final class SQLiteUserDAO implements UserDAO {
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
 
     @Override
+    // synchronized means only one thread at a time can run this database method on this DAO object.
+    // SQLite is happiest when writes are kept simple and serialized like this.
     public synchronized User save(User user) {
         // INSERT with ? placeholders - values bound via setString/setInt below.
         String sql = """
@@ -36,6 +38,8 @@ public final class SQLiteUserDAO implements UserDAO {
         """;
         // RETURN_GENERATED_KEYS tells JDBC to make the AUTOINCREMENT id available
         // in the ResultSet returned by getGeneratedKeys().
+        // PreparedStatement is the JDBC object for SQL with placeholders.
+        // The question marks are filled by setString and setInt, so user text is treated as data, not SQL code.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setString(1, user.getUsername());
             ps.setString(2, user.getPasswordHash());
@@ -55,6 +59,7 @@ public final class SQLiteUserDAO implements UserDAO {
     }
 
     @Override
+    // synchronized prevents this read from using the shared SQLite connection at the same time as a write.
     public synchronized Optional<User> findById(long id) {
         String sql = "SELECT * FROM users WHERE id = ?";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
@@ -64,6 +69,7 @@ public final class SQLiteUserDAO implements UserDAO {
     }
 
     @Override
+    // This uses the same JDBC pattern: prepare SQL, bind values, execute, then map the ResultSet.
     public synchronized Optional<User> findByUsername(String username) {
         String sql = "SELECT * FROM users WHERE username = ?";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
@@ -90,7 +96,8 @@ public final class SQLiteUserDAO implements UserDAO {
         } catch (SQLException e) { throw new RuntimeException(e); }
     }
 
-    // ResultSet -> domain object mapping
+    // ResultSet is JDBC's cursor over rows returned by a SELECT.
+    // Think of it as a reader that starts before the first row and moves forward with next().
 
     // Reads exactly one row; returns null if the ResultSet is empty.
     // Callers wrap the return in Optional.ofNullable().

@@ -57,6 +57,8 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
     // produces NULL for winner_name rather than dropping the row entirely.
 
     @Override
+    // synchronized serializes access to the shared SQLite connection for this DAO.
+    // This matters because bid requests and scheduler events can both update auctions.
     public synchronized Auction save(Auction auction) {
         // item.id must already be set (ItemDAO.save() must have been called first).
         String sql = """
@@ -150,8 +152,12 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
     }
 
     // ResultSet -> domain object mapping
+    // ResultSet is JDBC's reader over rows returned by a SELECT.
+    // The helper methods below turn those rows into normal Java Auction objects.
 
     private Optional<Auction> findOne(String sql, StatementBinder binder) {
+        // PreparedStatement is JDBC's safe way to run SQL with placeholders.
+        // Each setLong, setDouble, and setString fills one question mark in the SQL.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             binder.bind(ps);
             ResultSet rs = ps.executeQuery();

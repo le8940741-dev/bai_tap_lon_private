@@ -68,20 +68,24 @@ public final class ServerConnection {
     // Reused for all JSON conversion.
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
-    // Socket: one endpoint of the TCP connection; the client keeps exactly one open link to the server.
+    // Socket is the client's end of the TCP connection.
+    // TCP is a steady two-way conversation, so the app can both send requests and receive live broadcasts.
     private Socket socket;
     private PrintWriter out;
 
     // Requests waiting for their matching server response.
+    // ConcurrentHashMap is used because the UI thread adds requests while the reader thread completes them.
     private final ConcurrentHashMap<String, CompletableFuture<Message>> pending =
             new ConcurrentHashMap<>();
 
-    // Read by the socket reader thread and changed by UI controllers.
+    // volatile means the reader thread sees the latest listener set by the JavaFX UI thread.
     private volatile BroadcastListener broadcastListener;
 
-    // Background thread that reads one JSON line at a time from the server.
+    // ExecutorService owns the background reader thread.
+    // The JavaFX UI thread must stay free to repaint the window and handle button clicks.
     private final ExecutorService readerThread =
             Executors.newSingleThreadExecutor(r -> {
+                // This thread blocks in readLoop(), waiting for server messages.
                 Thread t = new Thread(r, "server-reader");
                 t.setDaemon(true);
                 return t;
@@ -97,10 +101,13 @@ public final class ServerConnection {
      * @throws IOException if the connection cannot be established
      */
     public void connect(String host, int port) throws IOException {
+        // new Socket(host, port) opens the network connection to the server's ServerSocket.
+        // If the server is not running, this constructor throws instead of giving a half-connected object.
         socket = new Socket(host, port);
+        // PrintWriter writes text to the socket. The final true means each println is sent immediately.
         out    = new PrintWriter(
                 new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())), true);
-        // The reader blocks until the server sends a line.
+        // submit starts readLoop on the background reader thread, not on the JavaFX UI thread.
         readerThread.submit(this::readLoop);
         log.info("Connected to {}:{}", host, port);
     }
@@ -128,9 +135,12 @@ public final class ServerConnection {
      * Send a message and return a future for the matching response.
      */
     public CompletableFuture<Message> send(Message msg) {
+        // CompletableFuture is a promise for a value that will arrive later.
+        // Here, the value arrives when readLoop sees a response with the same requestId.
         CompletableFuture<Message> future = new CompletableFuture<>();
         pending.put(msg.getRequestId(), future);
         String json = gson.toJson(msg);
+        // synchronized prevents two UI actions from writing two JSON lines at the same exact time.
         synchronized (this) { out.println(json); }
         return future;
     }
@@ -144,6 +154,8 @@ public final class ServerConnection {
      */
     public void sendOnFxThread(Message msg, BiConsumer<Message, Throwable> completion) {
         send(msg).whenCompleteAsync((response, error) ->
+                // Platform.runLater queues the callback onto the JavaFX Application Thread.
+                // That is the only thread allowed to change labels, tables, buttons, and charts.
                 Platform.runLater(() -> completion.accept(response, error)));
     }
 
@@ -174,7 +186,9 @@ public final class ServerConnection {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream()))) {
             String line;
-            while ((line = in.readLine()) != null) { // null = server closed the connection
+            // readLine() blocks until the server sends one newline-terminated JSON message.
+            // null means the server closed the connection.
+            while ((line = in.readLine()) != null) {
                 Message msg = gson.fromJson(line, Message.class);
                 route(msg);
             }
@@ -191,6 +205,7 @@ public final class ServerConnection {
      * Send responses to their waiting future; treat everything else as a broadcast.
      */
     private void route(Message msg) {
+        // The requestId tells us whether this incoming line answers a request we sent earlier.
         CompletableFuture<Message> future = pending.remove(msg.getRequestId());
         if (future != null) {
             future.complete(msg);
@@ -206,6 +221,7 @@ public final class ServerConnection {
         BroadcastListener listener = this.broadcastListener;
         if (listener == null) return;
 
+        // Broadcasts also arrive on the reader thread, so UI callbacks must be moved to the JavaFX thread.
         Platform.runLater(() -> {
             try {
                 switch (msg.getType()) {

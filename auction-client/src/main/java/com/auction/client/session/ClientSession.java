@@ -25,6 +25,8 @@ public final class ClientSession {
     /** Double-checked locking singleton accessor. */
     public static ClientSession getInstance() {
         if (instance == null) {
+            // synchronized means only one thread can create the session object at a time.
+            // The extra inner null check avoids creating two sessions if two threads arrive together.
             synchronized (ClientSession.class) {
                 if (instance == null) instance = new ClientSession();
             }

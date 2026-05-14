@@ -37,6 +37,8 @@ public final class Message {
      */
     public static Message of(MessageType type, Object payloadObj, Gson gson) {
         Message m = new Message();
+        // UUID creates a unique-looking request id so many requests can be in flight at once.
+        // The server copies this exact id into the reply, which lets the client match reply to request.
         m.requestId = UUID.randomUUID().toString();
         m.type = type;
         m.payload = gson.toJsonTree(payloadObj);

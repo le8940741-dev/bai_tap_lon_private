@@ -32,14 +32,16 @@ public final class AuctionEventBus {
 
     // Singleton
 
-    // volatile ensures that when one thread writes the reference, all other threads
-    // see the new value immediately (no stale CPU cache).
+    // volatile means "when one thread writes this field, other threads must see the newest value."
+    // That matters here because client threads can ask for the event bus at the same time.
     private static volatile AuctionEventBus instance;
 
     private AuctionEventBus() {}
 
     public static AuctionEventBus getInstance() {
         if (instance == null) {
+            // synchronized makes the first creation of the singleton happen one thread at a time.
+            // After the object exists, callers skip this block and just reuse the same bus.
             synchronized (AuctionEventBus.class) {
                 if (instance == null) instance = new AuctionEventBus();
             }
@@ -49,14 +51,15 @@ public final class AuctionEventBus {
 
     // State
 
-    // Maps auctionId -> set of all ClientHandlers currently watching that auction.
-    // ConcurrentHashMap: multiple threads can read/write different keys simultaneously.
+    // ConcurrentHashMap is a Map designed for many threads using it at once.
+    // Here, one client thread may subscribe while another client thread is placing a bid.
     private final ConcurrentHashMap<Long, Set<AuctionObserver>> watchers =
             new ConcurrentHashMap<>();
 
-    // Cached thread pool: creates a new thread per notification burst, reuses idle threads.
-    // Daemon threads: won't prevent JVM shutdown if the server process is killed.
+    // This pool sends notifications on background threads. A slow client write should not
+    // make the bidder who placed the bid wait for every watcher to receive the update.
     private final ExecutorService notifyPool = Executors.newCachedThreadPool(r -> {
+        // Naming the thread helps when reading logs or debugger thread lists.
         Thread t = new Thread(r, "notify-pool");
         t.setDaemon(true); // daemon = dies when main thread dies; won't block JVM shutdown
         return t;
@@ -65,6 +68,8 @@ public final class AuctionEventBus {
     // Subscription management
 
     public void subscribe(long auctionId, AuctionObserver observer) {
+        // computeIfAbsent is a safe "get or create" operation for ConcurrentHashMap.
+        // It prevents two threads from accidentally creating two separate watcher sets for the same auction.
         watchers.computeIfAbsent(auctionId,
                 k -> Collections.newSetFromMap(new ConcurrentHashMap<>()))
                 .add(observer);
@@ -77,7 +82,8 @@ public final class AuctionEventBus {
     }
 
     public void unsubscribeAll(AuctionObserver observer) {
-        // Iterating ConcurrentHashMap values is safe - it uses a snapshot view.
+        // ConcurrentHashMap allows this loop while other threads are subscribing or unsubscribing.
+        // The loop sees a safe current view of the values instead of throwing a modification error.
         watchers.values().forEach(set -> set.remove(observer));
     }
 
@@ -102,6 +108,7 @@ public final class AuctionEventBus {
         if (set == null || set.isEmpty()) return;
         for (AuctionObserver obs : set) {
             // Each observer gets its own Runnable submitted to the pool.
+            // Runnable is just "a block of code a thread can run later."
             notifyPool.submit(() -> {
                 try {
                     action.apply(obs);

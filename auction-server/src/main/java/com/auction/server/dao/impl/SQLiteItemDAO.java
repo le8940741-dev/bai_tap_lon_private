@@ -23,11 +23,14 @@ public final class SQLiteItemDAO implements ItemDAO {
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
 
     @Override
+    // synchronized keeps this SQLite write from overlapping another operation on the same shared connection.
     public synchronized Item save(Item item) {
         String sql = """
             INSERT INTO items (name, description, category, seller_id, image_url, extra_data, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """;
+        // PreparedStatement sends SQL to SQLite with safe placeholders for values.
+        // This is safer than building one big SQL string by hand.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setString(1, item.getName());
             ps.setString(2, item.getDescription());
@@ -47,6 +50,7 @@ public final class SQLiteItemDAO implements ItemDAO {
     }
 
     @Override
+    // This read uses JDBC ResultSet rows and turns the one matching row back into an Item object.
     public synchronized Optional<Item> findById(long id) {
         // JOIN to get seller_name without a second query.
         String sql = """
@@ -63,6 +67,7 @@ public final class SQLiteItemDAO implements ItemDAO {
     }
 
     @Override
+    // Many client threads may ask for seller items, so synchronized protects the shared connection.
     public synchronized List<Item> findBySellerId(long sellerId) {
         String sql = """
             SELECT i.*, u.username AS seller_name
@@ -83,6 +88,8 @@ public final class SQLiteItemDAO implements ItemDAO {
     }
 
     private Item map(ResultSet rs) throws SQLException {
+        // ResultSet getters read columns from the current database row.
+        // The column names here match either table columns or SELECT aliases.
         ItemCategory category = ItemCategory.valueOf(rs.getString("category"));
         Item item = ItemFactory.create(category); // Factory Method - creates Electronics, Art, or Vehicle
         item.setId(rs.getLong("id"));

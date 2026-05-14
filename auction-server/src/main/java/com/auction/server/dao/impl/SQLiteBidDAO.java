@@ -20,11 +20,14 @@ public final class SQLiteBidDAO implements BidDAO {
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
 
     @Override
+    // synchronized keeps bid writes from overlapping on the one shared SQLite connection.
     public synchronized BidTransaction save(BidTransaction bid) {
         String sql = """
             INSERT INTO bid_transactions (auction_id, bidder_id, amount, is_auto_bid, created_at)
             VALUES (?, ?, ?, ?, ?)
         """;
+        // PreparedStatement sends this INSERT to SQLite with the values bound separately.
+        // That keeps the SQL shape fixed and lets JDBC handle quoting values correctly.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, bid.getAuctionId());
             ps.setLong(2, bid.getBidderId());
@@ -32,6 +35,7 @@ public final class SQLiteBidDAO implements BidDAO {
             ps.setInt(4, bid.isAutoBid() ? 1 : 0); // boolean -> SQLite integer
             ps.setString(5, bid.getTimestamp().toString()); // ISO-8601 string
             ps.executeUpdate();
+            // SQLite creates the id automatically. This small ResultSet reads back the id SQLite just assigned.
             try (ResultSet keys = conn().createStatement().executeQuery("SELECT last_insert_rowid()")) {
                 if (keys.next()) bid.setId(keys.getLong(1));
             }
@@ -42,6 +46,7 @@ public final class SQLiteBidDAO implements BidDAO {
     }
 
     @Override
+    // synchronized protects the shared connection while reading bid history.
     public synchronized List<BidTransaction> findByAuctionId(long auctionId) {
         String sql = """
             SELECT bt.*, u.username AS bidder_name
@@ -53,6 +58,7 @@ public final class SQLiteBidDAO implements BidDAO {
         // ASC order: first bid first - matches the left-to-right chart X axis.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, auctionId);
+            // executeQuery returns a ResultSet, which is a cursor over the rows SQLite found.
             ResultSet rs = ps.executeQuery();
             List<BidTransaction> list = new ArrayList<>();
             while (rs.next()) {

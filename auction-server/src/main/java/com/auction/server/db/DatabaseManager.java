@@ -35,10 +35,15 @@ public final class DatabaseManager {
 
     private DatabaseManager() {
         try {
+            // JDBC drivers are the bridge between Java and a database engine.
+            // This line makes sure the SQLite bridge class is loaded before Java asks for a connection.
             Class.forName("org.sqlite.JDBC");
             String url = resolveUrl();
+            // DriverManager opens the database connection. For SQLite, the URL points to a file,
+            // so there is no separate database server process running in the background.
             connection = DriverManager.getConnection(url);
-            // foreign_keys only - WAL removed (Windows temp-dir incompatibility)
+            // PRAGMA is a SQLite setting command. This one tells SQLite to enforce relationships
+            // like "an auction must point at an existing item" instead of silently accepting bad rows.
             connection.createStatement().execute("PRAGMA foreign_keys=ON");
             initSchema();
             log.info("Database initialised at {}", url);
@@ -49,6 +54,8 @@ public final class DatabaseManager {
 
     public static DatabaseManager getInstance() {
         if (instance == null) {
+            // synchronized means only one thread at a time can enter this block.
+            // Without it, two client threads could both try to open and initialize the database at once.
             synchronized (DatabaseManager.class) {
                 if (instance == null) {
                     instance = new DatabaseManager();
@@ -62,6 +69,8 @@ public final class DatabaseManager {
         if (instance != null) {
             try {
                 if (instance.connection != null && !instance.connection.isClosed()) {
+                    // Closing the JDBC connection releases the SQLite file handle.
+                    // Tests need this before they can delete the temporary database file on Windows.
                     instance.connection.close();
                 }
             } catch (SQLException ignored) {}
@@ -72,7 +81,9 @@ public final class DatabaseManager {
     public synchronized Connection getConnection() {
         try {
             if (connection == null || connection.isClosed()) {
+                // If the old JDBC connection was closed, create a new one to the same SQLite file.
                 connection = DriverManager.getConnection(resolveUrl());
+                // SQLite settings live on the connection, so a reopened connection must set this again.
                 connection.createStatement().execute("PRAGMA foreign_keys=ON");
             }
         } catch (SQLException e) {
@@ -82,6 +93,8 @@ public final class DatabaseManager {
     }
 
     private void initSchema() throws SQLException {
+        // Statement sends SQL text to SQLite. try-with-resources closes it automatically
+        // even if one of the CREATE TABLE commands fails.
         try (Statement st = connection.createStatement()) {
             st.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS users (

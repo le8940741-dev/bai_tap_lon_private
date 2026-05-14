@@ -52,10 +52,12 @@ public final class AuctionServer {
     private final AuctionService auctionService;
     private final BidService     bidService;
 
-    // Cached thread pool: grows on demand; reuses idle threads.
-    // Daemon threads: won't prevent JVM exit when the server process is killed.
+    // ExecutorService is Java's "give this work to background threads" object.
+    // A cached thread pool grows when more clients connect and reuses old threads when clients leave.
+    // Daemon threads do not keep the JVM alive by themselves, so stopping the server process can still exit cleanly.
     private final ExecutorService clientPool =
             Executors.newCachedThreadPool(r -> {
+                // This factory customizes each worker thread before the pool starts using it.
                 Thread t = new Thread(r);
                 t.setDaemon(true);
                 return t;
@@ -86,14 +88,19 @@ public final class AuctionServer {
     }
 
     public void start() throws IOException {
+        // ServerSocket is the listening side of TCP. It binds to a port and waits for clients
+        // to open their own Socket connections to that port.
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             log.info("Auction server listening on port {}", port);
-            // Loop until the thread is interrupted (e.g. CTRL+C sends SIGINT).
+            // Loop until the thread is interrupted. In plain language, this means
+            // "keep accepting clients until the server is told to stop."
             while (!Thread.currentThread().isInterrupted()) {
-                Socket client = serverSocket.accept(); // blocks until a client connects
+                // accept() blocks, which means this thread pauses here until a client connects.
+                // The returned Socket is the private two-way conversation with that one client.
+                Socket client = serverSocket.accept();
                 log.info("Client connected: {}", client.getRemoteSocketAddress());
-                // Create a new ClientHandler for this connection and submit it to the pool.
-                // The pool thread runs ClientHandler.run() which blocks on readLine().
+                // submit() gives the client conversation to a pool thread. This keeps the accept loop
+                // free to go back and wait for the next client.
                 clientPool.submit(new ClientHandler(
                         client, gson,
                         userService, itemService, auctionService, bidService));

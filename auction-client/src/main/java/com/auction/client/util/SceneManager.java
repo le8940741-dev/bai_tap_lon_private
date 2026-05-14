@@ -73,7 +73,8 @@ public final class SceneManager {
             Object controller = cachedControllers.get(view);
 
             if (root == null) {
-                // First visit: load from FXML and cache the result.
+                // FXMLLoader reads an .fxml layout file and creates the matching JavaFX objects.
+                // It also creates the controller named in the FXML file and connects @FXML fields to controls.
                 FXMLLoader loader = new FXMLLoader(
                         SceneManager.class.getResource(view.fxmlPath));
                 root = loader.load();
@@ -83,6 +84,8 @@ public final class SceneManager {
             }
 
             // Refresh data if this controller supports it.
+            // This is normal Java interface checking, but it matters here because cached JavaFX screens
+            // need fresh server data when the user navigates back to them.
             if (controller instanceof Refreshable r) r.refresh();
 
             Scene scene = primaryStage.getScene();
@@ -111,6 +114,8 @@ public final class SceneManager {
      */
     public static void showAuctionDetail(long auctionId) {
         try {
+            // Auction detail is not cached because each detail screen needs a different auction id.
+            // FXMLLoader creates a fresh controller so currentAuctionId starts clean for this visit.
             FXMLLoader loader = new FXMLLoader(
                     SceneManager.class.getResource(View.AUCTION_DETAIL.fxmlPath));
             Parent root = loader.load();

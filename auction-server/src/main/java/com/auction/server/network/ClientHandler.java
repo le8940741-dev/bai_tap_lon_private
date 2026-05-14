@@ -97,15 +97,21 @@ public final class ClientHandler implements Runnable, AuctionObserver {
     @Override
     public void run() {
         try (
+            // getInputStream() reads raw bytes from this client's socket.
+            // InputStreamReader turns those bytes into characters, and BufferedReader lets us read one line at a time.
             BufferedReader in = new BufferedReader(
                     new InputStreamReader(socket.getInputStream()));
+            // getOutputStream() writes bytes back to the same socket.
+            // PrintWriter.println(...) sends one complete JSON message line to the client.
             PrintWriter out = new PrintWriter(
                     new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())), true)
             // 'true' = auto-flush: every println() immediately sends the line
         ) {
             this.out = out;
             String line;
-            while ((line = in.readLine()) != null) { // blocks until data or disconnect
+            // readLine() blocks. That means this thread sleeps here until the client sends
+            // a newline-terminated message or disconnects.
+            while ((line = in.readLine()) != null) {
                 try {
                     Message msg = gson.fromJson(line, Message.class);
                     dispatch(msg);
@@ -341,6 +347,8 @@ public final class ClientHandler implements Runnable, AuctionObserver {
         reply(request, type, EmptyPayload.INSTANCE);
     }
 
+    // synchronized protects the socket writer. Broadcasts and normal replies can come from
+    // different server threads, and two println calls must not overlap on the same socket.
     private synchronized void send(Message msg) {
         if (out != null) out.println(gson.toJson(msg));
     }

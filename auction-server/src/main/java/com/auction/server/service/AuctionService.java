@@ -35,18 +35,19 @@ public final class AuctionService {
     // The singleton event bus - used to broadcast lifecycle events (end, extend).
     private final AuctionEventBus eventBus = AuctionEventBus.getInstance();
 
-    // Single-thread scheduler: all auction close events fire sequentially.
-    // Daemon thread: won't block JVM shutdown.
+    // ScheduledExecutorService runs code later, at a time we choose.
+    // This one has a single background thread, so close events happen one after another.
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
+                // The scheduler thread wakes up when an auction reaches its end time.
                 Thread t = new Thread(r, "auction-scheduler");
                 t.setDaemon(true);
                 return t;
             });
 
-    // Maps auctionId -> the scheduled task that will close it.
-    // ConcurrentHashMap because ClientHandler threads (reschedule on extension) and
-    // the scheduler thread (remove on fire) both access it.
+    // ScheduledFuture is the handle for a scheduled close task.
+    // We keep it so anti-sniping can cancel the old close time and schedule a later one.
+    // ConcurrentHashMap is used because client request threads and the scheduler thread both touch this map.
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> closeFutures =
             new ConcurrentHashMap<>();
 
@@ -175,6 +176,8 @@ public final class AuctionService {
             scheduler.submit(() -> closeAuction(auction.getId()));
             return;
         }
+        // schedule(...) means "run closeAuction later after this delay."
+        // It returns a handle so we can cancel this exact future task if the auction is extended.
         ScheduledFuture<?> future = scheduler.schedule(
                 () -> closeAuction(auction.getId()), delayMs, TimeUnit.MILLISECONDS);
         closeFutures.put(auction.getId(), future); // store for possible cancellation
@@ -187,7 +190,9 @@ public final class AuctionService {
 
     private void cancelScheduledClose(long auctionId) {
         ScheduledFuture<?> f = closeFutures.remove(auctionId);
-        if (f != null) f.cancel(false); // false = don't interrupt if already running
+        // cancel(false) means "do not start it if it has not started yet."
+        // If it is already running, Java lets it finish instead of interrupting it halfway through.
+        if (f != null) f.cancel(false);
     }
 
     private void restoreSchedules() {

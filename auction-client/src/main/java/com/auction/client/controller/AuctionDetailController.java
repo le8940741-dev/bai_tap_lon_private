@@ -100,6 +100,8 @@ public final class AuctionDetailController implements BroadcastListener {
 
     private XYChart.Series<Number, Number> priceSeries;
     private long currentAuctionId;
+    // Timer runs small repeated work on its own background thread.
+    // The countdown uses it so the UI can keep responding while time is recalculated once per second.
     private Timer countdownTimer;
     private long endTimeEpochSec;
 
@@ -155,6 +157,8 @@ public final class AuctionDetailController implements BroadcastListener {
         ServerConnection conn = ClientSession.getInstance().getConnection();
         conn.setBroadcastListener(this);
 
+        // WATCH_AUCTION tells the server to push future bid/end/extension messages for this auction.
+        // This is different from asking once for details; it keeps the server sending live updates while this screen is open.
         Message watchMsg = Message.of(
                 MessageType.WATCH_AUCTION,
                 new WatchAuctionRequest(auctionId),
@@ -404,8 +408,11 @@ public final class AuctionDetailController implements BroadcastListener {
 
     private void startCountdown() {
         stopCountdown();
-        // Timer: a lightweight JDK scheduler; used here because the countdown is view-local UI state.
+        // Timer is a lightweight JDK scheduler. The true argument makes its thread a daemon,
+        // so this countdown thread will not keep the whole app alive after the window closes.
         countdownTimer = new Timer(true);
+        // scheduleAtFixedRate runs this TimerTask every 1000 milliseconds.
+        // TimerTask.run() does not run on the JavaFX UI thread, so it must not touch labels directly.
         countdownTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
@@ -422,7 +429,8 @@ public final class AuctionDetailController implements BroadcastListener {
                 }
 
                 String finalText = text;
-                // Platform.runLater: TimerTask runs off the FX thread, so label updates must be queued here.
+                // Platform.runLater moves the label update onto the JavaFX Application Thread.
+                // Without this handoff, the countdown would be changing UI controls from the wrong thread.
                 Platform.runLater(() -> labelCountdown.setText(finalText));
             }
         }, 0, 1000);

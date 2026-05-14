@@ -39,8 +39,9 @@ public final class BidService {
     private final AuctionService auctionService; // for anti-snipe + markRunning
     private final AuctionEventBus eventBus = AuctionEventBus.getInstance();
 
-    // Maps auctionId -> its dedicated ReentrantLock.
-    // ConcurrentHashMap.computeIfAbsent() creates the lock the first time it's needed.
+    // Each auction gets its own ReentrantLock. A lock is like a key to a room:
+    // only the thread holding the key may change that auction's price.
+    // ConcurrentHashMap is used because many client threads may ask for locks at the same time.
     private final ConcurrentHashMap<Long, ReentrantLock> auctionLocks = new ConcurrentHashMap<>();
 
     public BidService(AuctionDAO auctionDAO, BidDAO bidDAO,
@@ -58,7 +59,9 @@ public final class BidService {
             throw new BidException("Your account type cannot place bids");
 
         ReentrantLock lock = lockFor(auctionId); // get or create the auction's lock
-        lock.lock();                              // ACQUIRE - blocks until no other thread holds it
+        // lock() waits here if another client is already changing this same auction.
+        // Other auctions can still be processed because they use different locks.
+        lock.lock();
         try {
             // Always re-read from DB inside the lock to get the latest price/status.
             Auction auction = auctionDAO.findById(auctionId)
@@ -81,7 +84,8 @@ public final class BidService {
 
             return bid;
         } finally {
-            lock.unlock(); // RELEASE - always, even if an exception was thrown
+            // unlock() must run in finally so the auction is not left permanently locked after an error.
+            lock.unlock();
         }
     }
 
@@ -94,6 +98,7 @@ public final class BidService {
             throw new BidException("maxBid and increment must be positive");
 
         ReentrantLock lock = lockFor(auctionId);
+        // Auto-bid setup can immediately change the current price, so it uses the same per-auction lock as manual bids.
         lock.lock();
         try {
             Auction auction = auctionDAO.findById(auctionId)
@@ -214,7 +219,9 @@ public final class BidService {
     // Lock management
 
     private ReentrantLock lockFor(long auctionId) {
+        // computeIfAbsent performs "look up the lock, or create it once if missing" safely across threads.
+        // true asks ReentrantLock to be fair, meaning waiting threads are served roughly in arrival order.
         return auctionLocks.computeIfAbsent(auctionId,
-                k -> new ReentrantLock(true)); // true = fair mode (FIFO)
+                k -> new ReentrantLock(true));
     }
 }

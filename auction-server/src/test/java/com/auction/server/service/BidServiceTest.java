@@ -141,7 +141,9 @@ class BidServiceTest {
                 Files.deleteIfExists(Path.of(tempDb.toString() + "-shm"));
                 break; // success - exit the retry loop
             } catch (IOException ignored) {
-                Thread.sleep(100); // wait 100ms and retry
+                // Thread.sleep pauses only this test thread.
+                // It gives Windows a short moment to release the SQLite file lock before the next delete attempt.
+                Thread.sleep(100);
             }
         }
     }

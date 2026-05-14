@@ -21,6 +21,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
 
     @Override
+    // synchronized prevents two threads from saving auto-bid settings through this DAO at the same time.
     public synchronized AutoBid save(AutoBid ab) {
         // UPSERT: INSERT the row; if the unique key (auction_id, bidder_id) conflicts,
         // update the existing row's max_bid, increment, and registration time instead.
@@ -34,6 +35,8 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
                 active        = 1
         """;
         // 'excluded' refers to the row that was attempted to be inserted (the new values).
+        // PreparedStatement binds Java values into the SQL placeholders.
+        // The UPSERT rule is still handled by SQLite after JDBC sends the statement.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, ab.getAuctionId());
             ps.setLong(2, ab.getBidderId());
@@ -51,6 +54,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
     }
 
     @Override
+    // synchronized keeps this read consistent with other uses of the shared SQLite connection.
     public synchronized List<AutoBid> findActiveByAuctionId(long auctionId) {
         String sql = """
             SELECT ab.*, u.username AS bidder_name
@@ -67,6 +71,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
     }
 
     @Override
+    // Optional is used because the SELECT might find no row for this bidder and auction.
     public synchronized Optional<AutoBid> findByAuctionAndBidder(long auctionId, long bidderId) {
         String sql = """
             SELECT ab.*, u.username AS bidder_name
@@ -76,6 +81,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, auctionId);
             ps.setLong(2, bidderId);
+            // ResultSet lets us ask "was there a row?" with next(), then read its columns.
             ResultSet rs = ps.executeQuery();
             if (!rs.next()) return Optional.empty();
             return Optional.of(map(rs));
@@ -83,6 +89,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
     }
 
     @Override
+    // synchronized protects this UPDATE because it changes the database file.
     public synchronized void deactivate(long autoBidId) {
         // Set active=0 - the row is kept for audit purposes but no longer queried
         // by findActiveByAuctionId().
