@@ -1,31 +1,22 @@
 package com.auction.client.controller;
 
 /**
- * FILE ROLE:
-FILE ROLE: Controller for the admin panel screen (admin_panel.fxml).
-
-Displays a TableView of all registered users with their role and active status.
-Admin can select a user and click "Ban Selected" to deactivate their account.
-
-Implements Refreshable: calls loadUsers() on every visit to show the latest data.
-
-IMPORT NOTES:
-  - UsersResponse: the server's response payload for GET_USERS.
-  - BanUserRequest: carries the target user's id for the BAN_USER message.
-  - SimpleStringProperty: wires UserDTO fields to TableColumn cell factories.
-  - AlertUtil.confirm: shows "Are you sure?" before banning.
+ * FXML controller for {@code admin_panel.fxml} — user moderation table.
+ *
+ * <p>Only reachable for {@code ADMIN} roles. Issues {@link com.auction.common.protocol.MessageType#GET_USERS}
+ * on refresh and {@link com.auction.common.protocol.MessageType#BAN_USER} when a row is banned.
+ * Like other controllers it marshals async responses back onto the FX thread through ServerConnection.sendOnFxThread().</p>
  */
-
 import com.auction.client.network.ServerConnection;
 import com.auction.client.session.ClientSession;
 import com.auction.client.util.AlertUtil;
 import com.auction.client.util.SceneManager;
+import com.auction.client.util.SessionActions;
 import com.auction.common.dto.UserDTO;
 import com.auction.common.protocol.Message;
 import com.auction.common.protocol.MessageType;
 import com.auction.common.request.Requests.BanUserRequest;
 import com.auction.common.request.Responses.*;
-import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -34,6 +25,12 @@ import javafx.scene.control.*;
 
 import java.util.List;
 
+/**
+ * Displays the admin moderation table and sends ban requests for selected non-admin users.
+ *
+ * <p>SceneManager creates this controller for admin_panel.fxml after login; JavaFX calls
+ * initialize(), and refresh() reloads users whenever the admin panel is shown.</p>
+ */
 public final class AdminController implements SceneManager.Refreshable {
 
     @FXML private TableView<UserDTO>           userTable;
@@ -84,15 +81,16 @@ public final class AdminController implements SceneManager.Refreshable {
         Message msg = Message.of(MessageType.BAN_USER,
                 new BanUserRequest(selected.getId()), conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        // The helper runs this lambda on the JavaFX thread, which is required before changing labels.
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null) { statusLabel.setText("Error: " + ex.getMessage()); return; }
             if (resp.getType() == MessageType.ERROR) {
-                statusLabel.setText(resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                statusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             statusLabel.setText("User '" + selected.getUsername() + "' banned.");
             loadUsers();
-        }));
+        });
     }
 
     @FXML
@@ -102,21 +100,16 @@ public final class AdminController implements SceneManager.Refreshable {
 
     @FXML
     private void onLogout() {
-        ClientSession session = ClientSession.getInstance();
-        session.getConnection().send(
-                Message.of(MessageType.LOGOUT, com.auction.common.request.EmptyPayload.INSTANCE, session.getConnection().getGson()));
-        session.logout();
-        SceneManager.evictAll();
-        SceneManager.switchTo(SceneManager.View.LOGIN);
+        SessionActions.logoutToLogin();
     }
 
     private void loadUsers() {
         ServerConnection conn = ClientSession.getInstance().getConnection();
         Message msg = Message.of(MessageType.GET_USERS, com.auction.common.request.EmptyPayload.INSTANCE, conn.getGson());
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null || resp.getType() == MessageType.ERROR) return;
             UsersResponse r = resp.parsePayload(conn.getGson(), UsersResponse.class);
             users.setAll(r.users != null ? r.users : List.of());
-        }));
+        });
     }
 }

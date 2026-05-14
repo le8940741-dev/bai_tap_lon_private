@@ -7,33 +7,16 @@ import com.auction.server.model.User;    // abstract base returned by the factor
 import com.auction.server.model.UserRole; // enum selecting which subclass to create
 
 /**
- * FILE ROLE: Factory Method pattern for User creation.
+ * Factory Method pattern for {@link com.auction.server.model.User} subclasses.
  *
- * PATTERN: Factory Method (GoF)
- *   Mirrors ItemFactory — centralises instantiation of User subclasses so that
- *   adding a new role only requires one code change (here + a new subclass).
- *
- * USED BY:
- *   - UserService.register() — when a new account is created via RegisterRequest.
- *   - SQLiteUserDAO.map()    — when reading a user row from the database.
- *
- * WHY THE ADMIN CASE EXISTS:
- *   The Admin account is seeded directly by SQL in DatabaseManager, so register()
- *   rejects "ADMIN" as a role.  But SQLiteUserDAO needs to reconstruct the Admin
- *   object when reading the seeded row — that's the only legitimate caller of
- *   UserFactory.create(UserRole.ADMIN).
+ * <p>Callers work with the abstract {@link com.auction.server.model.User} type; this class picks
+ * {@link com.auction.server.model.Bidder}, {@link com.auction.server.model.Seller}, or {@link com.auction.server.model.Admin}.
+ * The {@code switch} on {@link com.auction.server.model.UserRole} must stay exhaustive whenever the enum grows.</p>
  */
 public final class UserFactory {
 
-    private UserFactory() {} // utility class — no instances
+    private UserFactory() {} // utility class - no instances
 
-    /**
-     * Create a new blank User of the specified role.
-     * The caller is responsible for setting username, passwordHash, email, etc.
-     *
-     * @param role the role enum constant
-     * @return a new, unpopulated User subclass instance
-     */
     public static User create(UserRole role) {
         return switch (role) {
             case BIDDER -> new Bidder();
@@ -42,13 +25,6 @@ public final class UserFactory {
         };
     }
 
-    /**
-     * Convenience overload that accepts the role as a String.
-     * Used by UserService.register() which receives the string from RegisterRequest.role.
-     *
-     * @param roleName e.g. "BIDDER" or "SELLER" (case-insensitive)
-     * @throws IllegalArgumentException if the string doesn't match any enum constant
-     */
     public static User create(String roleName) {
         return create(UserRole.valueOf(roleName.toUpperCase()));
     }

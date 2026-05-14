@@ -1,29 +1,17 @@
 package com.auction.server.model;
 
 /**
- * FILE ROLE: Concrete user type representing a buyer / auction participant.
+ * Concrete {@link User} role used for buyers.
  *
- * Bidders can:
- *   - Browse all auctions (anyone can)
- *   - Place manual bids (canBid() = true)
- *   - Register auto-bids (canBid() = true)
- *
- * Bidders cannot:
- *   - Create items or auctions (canSell() = false)
- *   - Access admin functions (getRole() = BIDDER, not ADMIN)
- *
- * The UserFactory creates a Bidder when the registered role is "BIDDER".
- * SQLiteUserDAO recreates a Bidder when reading a row with role='BIDDER'.
+ * <p>Template method / polymorphism: overrides {@link #canBid()} / {@link #canSell()} so
+ * {@link com.auction.server.service.BidService} can call the abstract API without {@code instanceof} chains.</p>
  */
 public final class Bidder extends User {
     public Bidder() { super(); }
 
-    /** Always BIDDER — used for role checks in services and ClientHandler. */
     @Override public UserRole getRole() { return UserRole.BIDDER; }
 
-    /** True — Bidders are the only users allowed to place bids. */
     @Override public boolean canBid()  { return true; }
 
-    /** False — Bidders cannot list items for sale. */
     @Override public boolean canSell() { return false; }
 }

@@ -10,16 +10,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * FILE ROLE: SQLite implementation of BidDAO.
+ * Persists each accepted bid as an immutable history row ordered ascending by time.
  *
- * The simplest DAO — bid_transactions is append-only (no updates, no deletes).
- * Every valid bid creates one new row; the history is never modified.
- *
- * The SELECT JOIN includes the users table to get bidder usernames,
- * so the bid history table in the UI can show names without extra lookups.
- *
- * Ordering is ascending by created_at so the price chart draws points
- * left-to-right in chronological order.
+ * <p>This separation keeps {@link com.auction.server.dao.AuctionDAO} smaller and gives the UI a
+ * dedicated query for charts without scanning the whole auctions table.</p>
  */
 public final class SQLiteBidDAO implements BidDAO {
 
@@ -35,7 +29,7 @@ public final class SQLiteBidDAO implements BidDAO {
             ps.setLong(1, bid.getAuctionId());
             ps.setLong(2, bid.getBidderId());
             ps.setDouble(3, bid.getAmount());
-            ps.setInt(4, bid.isAutoBid() ? 1 : 0); // boolean → SQLite integer
+            ps.setInt(4, bid.isAutoBid() ? 1 : 0); // boolean -> SQLite integer
             ps.setString(5, bid.getTimestamp().toString()); // ISO-8601 string
             ps.executeUpdate();
             try (ResultSet keys = conn().createStatement().executeQuery("SELECT last_insert_rowid()")) {
@@ -56,7 +50,7 @@ public final class SQLiteBidDAO implements BidDAO {
             WHERE bt.auction_id = ?
             ORDER BY bt.created_at ASC
         """;
-        // ASC order: first bid first — matches the left-to-right chart X axis.
+        // ASC order: first bid first - matches the left-to-right chart X axis.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, auctionId);
             ResultSet rs = ps.executeQuery();
@@ -68,7 +62,7 @@ public final class SQLiteBidDAO implements BidDAO {
                 bt.setBidderId(rs.getLong("bidder_id"));
                 bt.setBidderName(rs.getString("bidder_name")); // from JOIN alias
                 bt.setAmount(rs.getDouble("amount"));
-                bt.setAutoBid(rs.getInt("is_auto_bid") == 1); // integer → boolean
+                bt.setAutoBid(rs.getInt("is_auto_bid") == 1); // integer -> boolean
                 bt.setTimestamp(DateUtil.parse(rs.getString("created_at")));
                 list.add(bt);
             }

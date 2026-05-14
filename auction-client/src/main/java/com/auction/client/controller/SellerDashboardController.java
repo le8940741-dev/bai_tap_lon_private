@@ -1,36 +1,25 @@
 package com.auction.client.controller;
 
 /**
- * FILE ROLE:
-FILE ROLE: Controller for the seller dashboard screen (seller_dashboard.fxml).
-
-Two panels side-by-side:
-  LEFT:  "My Auctions" TableView showing the seller's own auctions.
-  RIGHT: Two form cards — "New Item" and "New Auction".
-
-Implements Refreshable: refresh() reloads both the auction list and the item
-ComboBox (via loadMyAuctions() and loadMyItems()) each time the screen is visited.
-
-IMPORT NOTES:
-  - ItemDTO: represents an item in the ComboBox for auction creation.
-  - StringConverter: converts ItemDTO to a display string for the ComboBox.
-  - CreateItemRequest / CreateAuctionRequest: form data sent to the server.
-  - ItemsResponse: the server's response containing the seller's items list.
-  - DateTimeFormatter / LocalDateTime: used to format the current time as default
-    start time when the user leaves the start time field blank.
+ * FXML controller for {@code seller_dashboard.fxml}.
+ *
+ * <p>Demonstrates several request types in one screen: {@code CREATE_ITEM}, {@code CREATE_AUCTION},
+ * {@code CANCEL_AUCTION}, plus seller-scoped queries. Each button handler follows the same recipe:
+ * build {@link com.auction.common.protocol.Message}, call ServerConnection.sendOnFxThread(),
+ * parse success payloads into DTOs, or show the shared server error payload.</p>
  */
-
 import com.auction.client.network.ServerConnection;
 import com.auction.client.session.ClientSession;
 import com.auction.client.util.AlertUtil;
+import com.auction.client.util.DisplayFormat;
 import com.auction.client.util.SceneManager;
+import com.auction.client.util.SessionActions;
 import com.auction.common.dto.AuctionDTO;
 import com.auction.common.dto.ItemDTO;
 import com.auction.common.protocol.Message;
 import com.auction.common.protocol.MessageType;
 import com.auction.common.request.Requests.*;
 import com.auction.common.request.Responses.*;
-import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -41,9 +30,15 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+/**
+ * Coordinates the seller dashboard: item creation, auction creation, cancellation, and seller-only lists.
+ *
+ * <p>SceneManager creates this controller for seller_dashboard.fxml after seller login; JavaFX calls
+ * initialize(), and refresh() reloads the seller's auctions and inventory whenever the view appears.</p>
+ */
 public final class SellerDashboardController implements SceneManager.Refreshable {
 
-    // ── My auctions table ─────────────────────────────────────────────────────
+    // My auctions table
     @FXML private TableView<AuctionDTO>          auctionTable;
     @FXML private TableColumn<AuctionDTO, String> colItem;
     @FXML private TableColumn<AuctionDTO, String> colPrice;
@@ -51,14 +46,14 @@ public final class SellerDashboardController implements SceneManager.Refreshable
     @FXML private TableColumn<AuctionDTO, String> colEnds;
     @FXML private Label                          userLabel;
 
-    // ── Create item form ──────────────────────────────────────────────────────
+    // Create item form
     @FXML private TextField     itemNameField;
     @FXML private TextArea      itemDescField;
     @FXML private ComboBox<String> itemCategoryCombo;
     @FXML private TextField     itemImageField;
     @FXML private TextField     itemExtraField;
 
-    // ── Create auction form ───────────────────────────────────────────────────
+    // Create auction form
     @FXML private ComboBox<ItemDTO> itemCombo;
     @FXML private TextField         startPriceField;
     @FXML private TextField         startTimeField;
@@ -79,7 +74,7 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         colStatus.setCellValueFactory(c ->
                 new SimpleStringProperty(c.getValue().getStatus()));
         colEnds.setCellValueFactory(c ->
-                new SimpleStringProperty(fmt(c.getValue().getEndTime())));
+                new SimpleStringProperty(DisplayFormat.isoToMinuteLabel(c.getValue().getEndTime())));
         auctionTable.setItems(myAuctions);
 
         itemCategoryCombo.getItems().addAll("ELECTRONICS", "ART", "VEHICLE");
@@ -99,7 +94,7 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         loadMyItems();
     }
 
-    // ── Create item ───────────────────────────────────────────────────────────
+    // Create item
 
     @FXML
     private void onCreateItem() {
@@ -119,10 +114,10 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         req.extraData = extra;
 
         Message msg = Message.of(MessageType.CREATE_ITEM, req, conn.getGson());
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null) { statusLabel.setText("Error: " + ex.getMessage()); return; }
             if (resp.getType() == MessageType.ERROR) {
-                statusLabel.setText(resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                statusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             ItemDTO created = resp.parsePayload(conn.getGson(), ItemDTO.class);
@@ -132,10 +127,10 @@ public final class SellerDashboardController implements SceneManager.Refreshable
             itemDescField.clear();
             itemImageField.clear();
             itemExtraField.clear();
-        }));
+        });
     }
 
-    // ── Create auction ────────────────────────────────────────────────────────
+    // Create auction
 
     @FXML
     private void onCreateAuction() {
@@ -159,20 +154,20 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         req.endTime      = endText;
 
         Message msg = Message.of(MessageType.CREATE_AUCTION, req, conn.getGson());
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null) { statusLabel.setText("Error: " + ex.getMessage()); return; }
             if (resp.getType() == MessageType.ERROR) {
-                statusLabel.setText(resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                statusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             AuctionDTO created = resp.parsePayload(conn.getGson(), AuctionDTO.class);
             myAuctions.add(0, created);
             statusLabel.setText("Auction #" + created.getId() + " created.");
             startPriceField.clear(); startTimeField.clear(); endTimeField.clear();
-        }));
+        });
     }
 
-    // ── Cancel auction ────────────────────────────────────────────────────────
+    // Cancel auction
 
     @FXML
     private void onCancelAuction() {
@@ -184,15 +179,15 @@ public final class SellerDashboardController implements SceneManager.Refreshable
         Message msg = Message.of(MessageType.CANCEL_AUCTION,
                 new CancelAuctionRequest(selected.getId()), conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null) { statusLabel.setText("Error: " + ex.getMessage()); return; }
             if (resp.getType() == MessageType.ERROR) {
-                statusLabel.setText(resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                statusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             statusLabel.setText("Auction cancelled.");
             loadMyAuctions();
-        }));
+        });
     }
 
     @FXML
@@ -202,19 +197,14 @@ public final class SellerDashboardController implements SceneManager.Refreshable
 
     @FXML
     private void onLogout() {
-        ClientSession session = ClientSession.getInstance();
-        session.getConnection().send(
-                Message.of(MessageType.LOGOUT, com.auction.common.request.EmptyPayload.INSTANCE, session.getConnection().getGson()));
-        session.logout();
-        SceneManager.evictAll();
-        SceneManager.switchTo(SceneManager.View.LOGIN);
+        SessionActions.logoutToLogin();
     }
 
     private void loadMyItems() {
         ServerConnection conn = ClientSession.getInstance().getConnection();
         Message msg = Message.of(MessageType.GET_SELLER_ITEMS,
                 com.auction.common.request.EmptyPayload.INSTANCE, conn.getGson());
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null || resp.getType() == MessageType.ERROR) return;
             com.auction.common.request.Responses.ItemsResponse r =
                     resp.parsePayload(conn.getGson(),
@@ -222,21 +212,16 @@ public final class SellerDashboardController implements SceneManager.Refreshable
             if (r.items != null) {
                 myItems.setAll(r.items);
             }
-        }));
+        });
     }
 
     private void loadMyAuctions() {
         ServerConnection conn = ClientSession.getInstance().getConnection();
         Message msg = Message.of(MessageType.GET_SELLER_AUCTIONS, com.auction.common.request.EmptyPayload.INSTANCE, conn.getGson());
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null || resp.getType() == MessageType.ERROR) return;
             AuctionsResponse r = resp.parsePayload(conn.getGson(), AuctionsResponse.class);
             myAuctions.setAll(r.auctions != null ? r.auctions : List.of());
-        }));
-    }
-
-    private String fmt(String iso) {
-        if (iso == null) return "";
-        return iso.replace("T", " ").substring(0, Math.min(16, iso.length()));
+        });
     }
 }

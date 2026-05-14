@@ -1,36 +1,19 @@
 package com.auction.server.model;
 
-import java.time.LocalDateTime; // Java's date-time type without timezone — all times stored as local server time
+import java.time.LocalDateTime; // Java's date-time type without timezone - all times stored as local server time
 
 /**
- * FILE ROLE: The abstract root of the entire domain model hierarchy.
+ * Small inheritance root for “things stored in the database”.
  *
- * Every persistent object in the system (User, Item, Auction, BidTransaction,
- * AutoBid) extends Entity.  This satisfies the OOP requirement for a shared
- * abstract base class, and gives us two things for free across all subclasses:
+ * <p><b>Shared state:</b> every row gets an {@code id} (filled in after insert) and a
+ * {@code createdAt} timestamp for auditing.</p>
  *
- *   1. 'id'        — the database primary key (set by the DAO after INSERT).
- *   2. 'createdAt' — auto-set to now() at construction time.
+ * <p><b>Polymorphism:</b> {@link #printInfo()} is abstract — each concrete subclass
+ * ({@link com.auction.server.model.Bidder}, {@link com.auction.server.model.Electronics}, …)
+ * prints its own fields so you can see dynamic dispatch in a debugger or console.</p>
  *
- * DESIGN DECISION — why abstract + printInfo():
- *   The assignment spec requires polymorphism demonstrated via overridden methods.
- *   printInfo() is the designated hook: every subclass prints its own fields.
- *   You can call entity.printInfo() on any object in the hierarchy without
- *   knowing its concrete type — Java dispatch calls the right override.
- *
- * INHERITANCE TREE:
- *   Entity
- *   ├── User (abstract)
- *   │   ├── Bidder
- *   │   ├── Seller
- *   │   └── Admin
- *   ├── Item (abstract)
- *   │   ├── Electronics
- *   │   ├── Art
- *   │   └── Vehicle
- *   ├── Auction
- *   ├── BidTransaction
- *   └── AutoBid
+ * <p><b>Major families:</b> {@link User} (bidder / seller / admin), {@link Item}
+ * (electronics / art / vehicle), plus {@link Auction}, {@link BidTransaction}, {@link AutoBid}.</p>
  */
 public abstract class Entity {
 
@@ -47,7 +30,7 @@ public abstract class Entity {
         this.createdAt = LocalDateTime.now();
     }
 
-    // ── Abstract contract ──────────────────────────────────────────────────────
+    // Abstract contract
 
     /**
      * Prints a human-readable summary of this object to stdout.
@@ -58,7 +41,7 @@ public abstract class Entity {
      */
     public abstract void printInfo();
 
-    // ── Getters / setters ──────────────────────────────────────────────────────
+    // Getters / setters
 
     /** The database primary key; 0 until persisted by a DAO. */
     public long getId() { return id; }

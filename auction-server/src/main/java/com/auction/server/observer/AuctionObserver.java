@@ -1,63 +1,28 @@
 package com.auction.server.observer;
 
-import com.auction.server.model.Auction;      // the auction whose state changed
-import com.auction.server.model.BidTransaction; // the bid that triggered the event
+import com.auction.server.model.Auction;
+import com.auction.server.model.BidTransaction;
 
 /**
- * FILE ROLE: Observer interface — the contract that any "watcher" must fulfill.
+ * Observer interface in the <b>Observer pattern</b> for live auction activity.
  *
- * PATTERN: Observer (GoF)
- *   The classic Observer pattern has two roles:
- *     - Subject (Observable): the thing that changes state — here, the auction.
- *     - Observer: anything that wants to be notified of state changes.
+ * <p><b>Who implements it:</b> {@link com.auction.server.network.ClientHandler} — one
+ * instance per TCP connection. When the user opens an auction detail screen, the client
+ * sends {@code WATCH_AUCTION}; the handler calls {@link AuctionEventBus#subscribe(long, AuctionObserver)}
+ * so this socket receives push events.</p>
  *
- *   In this system:
- *     Subject  = AuctionEventBus (holds the watcher sets, publishes events)
- *     Observer = ClientHandler   (implements this interface; one per connected client)
- *
- * HOW IT WORKS:
- *   1. A client sends WATCH_AUCTION → ClientHandler calls eventBus.subscribe(auctionId, this).
- *   2. When BidService places a bid, it calls eventBus.publishBidPlaced(auction, bid).
- *   3. AuctionEventBus iterates the watcher set and calls observer.onBidPlaced() on each.
- *   4. ClientHandler.onBidPlaced() serialises a BID_BROADCAST Message and writes it
- *      to the client's TCP output stream.
- *
- * WHY AN INTERFACE (not abstract class):
- *   ClientHandler already extends nothing but needs to implement this contract.
- *   Java interfaces let a class fulfill multiple contracts simultaneously.
- *   If we ever add a logging observer or a metrics observer, they just implement
- *   this interface without changing any service code.
- *
- * THREADING:
- *   These callbacks are invoked on AuctionEventBus's notification thread pool,
- *   NOT on the client's reader thread.  ClientHandler.onBidPlaced() writes to
- *   the socket using a synchronized send() method to prevent interleaving.
+ * <p><b>Who calls it:</b> {@link AuctionEventBus} after {@link com.auction.server.service.BidService}
+ * accepts a bid or {@link com.auction.server.service.AuctionService} closes / extends an auction.
+ * That way services stay unaware of sockets; they only talk to the bus.</p>
  */
 public interface AuctionObserver {
 
-    /**
-     * Called when a new valid bid is placed (manual or auto-bid).
-     * Implementors should send a BID_BROADCAST message to the client.
-     *
-     * @param auction the auction's state AFTER the bid was applied (updated price/leader)
-     * @param bid     the bid transaction that was just persisted
-     */
+    /** A new winning bid was stored; listeners should send {@code BID_BROADCAST} JSON. */
     void onBidPlaced(Auction auction, BidTransaction bid);
 
-    /**
-     * Called when an auction's scheduler fires and closeAuction() completes.
-     * Implementors should send an AUCTION_END_BROADCAST message to the client.
-     *
-     * @param auction the auction in its final FINISHED (or CANCELED) state
-     */
+    /** Auction reached a terminal running state; listeners send {@code AUCTION_END_BROADCAST}. */
     void onAuctionEnded(Auction auction);
 
-    /**
-     * Called when the anti-sniping algorithm extends the auction's end time.
-     * Implementors should send an AUCTION_EXTENDED message so the client's
-     * countdown timer updates to the new end time.
-     *
-     * @param auction the auction with its updated (extended) endTime
-     */
+    /** Anti-snipe moved {@code endTime}; listeners send {@code AUCTION_EXTENDED}. */
     void onAuctionExtended(Auction auction);
 }

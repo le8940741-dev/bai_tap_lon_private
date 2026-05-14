@@ -1,37 +1,22 @@
 package com.auction.client.controller;
 
 /**
- * FILE ROLE:
-FILE ROLE: Controller for the main auction list screen (auction_list.fxml).
-
-Implements Refreshable so SceneManager calls refresh() every time this screen
-is navigated to, ensuring the list is always current.
-
-KEY BEHAVIOURS:
-  - Loads all auctions via GET_AUCTIONS on refresh().
-  - Applies a real-time text filter (FilteredList) so the user can search by
-    item name or status without another server request.
-  - Double-clicking a row opens the auction detail screen for that auction.
-  - The TableView uses SimpleStringProperty cell factories to display fields
-    from AuctionDTO (id, item name, current price, status, end time).
-
-IMPORT NOTES:
-  - ObservableList: JavaFX's list type that notifies the TableView of changes.
-  - FilteredList: wraps the ObservableList to apply a predicate without copying.
-  - SimpleStringProperty: wraps a String so TableColumn cell factories can bind to it.
-  - AuctionsResponse: the server's response payload containing the auction list.
+ * FXML controller for {@code auction_list.fxml} — the bidder’s home screen.
+ *
+ * <p>Implements {@link com.auction.client.util.SceneManager.Refreshable} so {@link com.auction.client.util.SceneManager}
+ * can reload data whenever the user navigates back. Uses {@link javafx.collections.transformation.FilteredList}
+ * (decorator pattern around an {@link javafx.collections.ObservableList}) for live search without re-querying the server.</p>
  */
-
 import com.auction.client.network.ServerConnection;
 import com.auction.client.session.ClientSession;
 import com.auction.client.util.AlertUtil;
+import com.auction.client.util.DisplayFormat;
 import com.auction.client.util.SceneManager;
+import com.auction.client.util.SessionActions;
 import com.auction.common.dto.AuctionDTO;
 import com.auction.common.protocol.Message;
 import com.auction.common.protocol.MessageType;
 import com.auction.common.request.Responses.AuctionsResponse;
-import com.auction.common.request.Responses.ErrorResponse;
-import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -41,6 +26,12 @@ import javafx.scene.control.*;
 
 import java.util.List;
 
+/**
+ * Loads and filters auction rows, then delegates selected-auction navigation to SceneManager.
+ *
+ * <p>SceneManager creates this controller when auction_list.fxml is first shown; JavaFX calls
+ * initialize(), and SceneManager calls refresh() whenever the cached view returns to the screen.</p>
+ */
 public final class AuctionListController implements SceneManager.Refreshable {
 
     @FXML private TableView<AuctionDTO>              auctionTable;
@@ -70,8 +61,9 @@ public final class AuctionListController implements SceneManager.Refreshable {
         colStatus.setCellValueFactory(c ->
                 new SimpleStringProperty(c.getValue().getStatus()));
         colEnds.setCellValueFactory(c ->
-                new SimpleStringProperty(formatDateTime(c.getValue().getEndTime())));
+                new SimpleStringProperty(DisplayFormat.isoToMinuteLabel(c.getValue().getEndTime())));
 
+        // FilteredList: JavaFX decorator around ObservableList used here so search is local and instant.
         filteredAuctions = new FilteredList<>(allAuctions, a -> true);
         auctionTable.setItems(filteredAuctions);
 
@@ -84,7 +76,7 @@ public final class AuctionListController implements SceneManager.Refreshable {
             });
         });
 
-        // Double-click to view detail
+        // Double-click a row to open its detail screen.
         auctionTable.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2) {
                 AuctionDTO selected = auctionTable.getSelectionModel().getSelectedItem();
@@ -103,15 +95,15 @@ public final class AuctionListController implements SceneManager.Refreshable {
         ServerConnection conn = ClientSession.getInstance().getConnection();
         Message msg = Message.of(MessageType.GET_AUCTIONS, com.auction.common.request.EmptyPayload.INSTANCE, conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((response, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (response, ex) -> {
             if (ex != null) { AlertUtil.error("Error", ex.getMessage()); return; }
             if (response.getType() == MessageType.ERROR) {
-                AlertUtil.error("Error", response.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                AlertUtil.error("Error", conn.errorMessage(response));
                 return;
             }
             AuctionsResponse resp = response.parsePayload(conn.getGson(), AuctionsResponse.class);
             allAuctions.setAll(resp.auctions != null ? resp.auctions : List.of());
-        }));
+        });
     }
 
     @FXML
@@ -126,17 +118,7 @@ public final class AuctionListController implements SceneManager.Refreshable {
 
     @FXML
     private void onLogout() {
-        ClientSession session = ClientSession.getInstance();
-        ServerConnection conn = session.getConnection();
-        Message msg = Message.of(MessageType.LOGOUT, com.auction.common.request.EmptyPayload.INSTANCE, conn.getGson());
-        conn.send(msg);
-        session.logout();
-        SceneManager.evictAll();
-        SceneManager.switchTo(SceneManager.View.LOGIN);
+        SessionActions.logoutToLogin();
     }
 
-    private String formatDateTime(String iso) {
-        if (iso == null) return "";
-        return iso.replace("T", " ").substring(0, Math.min(16, iso.length()));
-    }
 }

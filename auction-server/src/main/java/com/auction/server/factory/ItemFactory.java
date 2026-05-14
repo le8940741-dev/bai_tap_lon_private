@@ -7,58 +7,26 @@ import com.auction.server.model.ItemCategory; // enum that selects which subclas
 import com.auction.server.model.Vehicle;      // concrete Vehicle item subclass
 
 /**
- * FILE ROLE: Factory Method pattern for Item creation.
+ * Factory Method pattern for {@link com.auction.server.model.Item} subclasses.
  *
- * PATTERN: Factory Method (GoF)
- *   Instead of calling "new Electronics()", "new Art()", or "new Vehicle()" in
- *   multiple places, all Item construction goes through this single method.
- *
- * WHY THIS MATTERS (Open/Closed Principle):
- *   When you add a new item category (e.g. RealEstate), you only change:
- *     1. Add REAL_ESTATE to ItemCategory enum.
- *     2. Add a new RealEstate class extending Item.
- *     3. Add a case here.
- *   Nothing else changes — SQLiteItemDAO, SQLiteAuctionDAO, DtoMapper all call
- *   ItemFactory.create(category) and automatically get the new type.
- *
- * USED BY:
- *   - ItemService.createItem()    — when a Seller creates a new item.
- *   - SQLiteItemDAO.map()         — when reading an item row from the database.
- *   - SQLiteAuctionDAO.map()      — when reading the embedded item from an auction row.
+ * <p>Each {@link com.auction.server.model.ItemCategory} maps to a concrete class so new categories
+ * can be introduced by adding one enum constant, one model class, and one {@code case} here.</p>
  */
 public final class ItemFactory {
 
-    private ItemFactory() {} // utility class — no instances
+    private ItemFactory() {} // utility class - no instances
 
-    /**
-     * Create a new blank Item of the specified category.
-     * The caller is responsible for setting name, description, sellerId, etc.
-     *
-     * Uses a switch expression (Java 14+) — exhaustive, so the compiler will
-     * force you to add a case if you add a new ItemCategory constant.
-     *
-     * @param category the item category enum constant
-     * @return a new, unpopulated Item subclass instance
-     */
     public static Item create(ItemCategory category) {
         return switch (category) {
             case ELECTRONICS -> new Electronics();
             case ART         -> new Art();
             case VEHICLE     -> new Vehicle();
-            // No 'default' — the switch must be exhaustive; compiler enforces this.
+            // No 'default' - the switch must be exhaustive; compiler enforces this.
         };
     }
 
-    /**
-     * Convenience overload that accepts the category as a String.
-     * Used by ItemService.createItem() which receives the string from the client's
-     * CreateItemRequest.category field.
-     *
-     * @param categoryName e.g. "ELECTRONICS", "ART", "VEHICLE" (case-insensitive)
-     * @throws IllegalArgumentException if the string doesn't match any enum constant
-     */
     public static Item create(String categoryName) {
-        // valueOf() throws IllegalArgumentException for unknown names — caught by ItemService.
+        // valueOf() throws IllegalArgumentException for unknown names - caught by ItemService.
         return create(ItemCategory.valueOf(categoryName.toUpperCase()));
     }
 }

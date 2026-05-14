@@ -1,45 +1,5 @@
 package com.auction.server.db;
 
-/**
- * FILE ROLE: SQLite database lifecycle manager — Singleton pattern.
- *
- * RESPONSIBILITIES:
- *   1. Open (or reopen) the single JDBC Connection to the SQLite database file.
- *   2. Run initSchema() on first connection to create all tables if they do not
- *      exist yet — safe to call on every startup thanks to CREATE TABLE IF NOT EXISTS.
- *   3. Seed the default admin account (username=admin, password=admin) using
- *      INSERT OR IGNORE so the seed only runs once even across restarts.
- *   4. Expose getConnection() to all DAO classes — they call this instead of
- *      opening their own connections, ensuring the whole server shares one connection.
- *
- * WHY ONE SHARED CONNECTION:
- *   SQLite in WAL mode supports concurrent readers + one writer.  In DELETE mode
- *   (which we use — WAL is disabled for Windows compatibility) it allows one
- *   connection at a time.  Sharing one connection serialised through synchronized
- *   DAO methods is the simplest correct design.  For a PostgreSQL backend, this
- *   class would be replaced by a connection pool (e.g. HikariCP) with no changes
- *   to the DAOs, because they depend on the UserDAO/AuctionDAO interfaces only.
- *
- * WHY NO WAL:
- *   PRAGMA journal_mode=WAL requires creating shared-memory sidecar files
- *   (.db-wal, .db-shm) in the same directory as the database.  On Windows,
- *   temp-directory paths sometimes block this file creation, causing an
- *   SQLITE_BUSY error before any schema is written.  The default DELETE
- *   journal mode avoids this with no correctness loss at our scale.
- *
- * TESTABILITY:
- *   The DB URL is read from the system property "auction.db.url" rather than
- *   being hardcoded.  Tests set this property to point at a temp file, then call
- *   resetForTesting() to destroy the singleton before creating a fresh one.
- *   This gives each test class an isolated, clean database.
- *
- * ADMIN SEED HASH:
- *   The stored hash "8c6976e5..." is SHA-256 of the string "admin" with no salt.
- *   PasswordUtil.verify() detects the absence of a ":" separator and handles
- *   this legacy format — so login with username=admin, password=admin works.
- *
- * USED BY: All five SQLite DAO implementations via getConnection().
- */
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,16 +9,18 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 /**
- * Singleton database connection manager for SQLite.
+ * Singleton that wraps one JDBC {@link Connection} to the SQLite file {@code auction.db}.
  *
- * <p>WAL journal mode is intentionally omitted: it requires shared-memory
- * file creation that fails on some Windows temp-directory configurations,
- * and the default DELETE mode is sufficient for correctness at this scale.</p>
+ * <p><b>Singleton pattern:</b> {@link #getInstance()} uses double-checked locking
+ * ({@code volatile} field + synchronized block) so only one connection bundle is created
+ * even if many threads call it on startup.</p>
  *
- * <p>The DB URL is read from the system property {@code auction.db.url} so
- * tests can point at a temporary file without touching production data.
- * {@link #resetForTesting()} drops the singleton so a fresh instance is
- * created on the next {@link #getInstance()} call.</p>
+ * <p><b>Who talks to it:</b> Every {@code SQLite*DAO} class calls {@link #getConnection()}
+ * to run SQL. If the database file is missing, SQLite creates it; {@link #initSchema()}
+ * runs {@code CREATE TABLE IF NOT EXISTS} so first boot is automatic.</p>
+ *
+ * <p><b>Testing hook:</b> {@link #resetForTesting()} closes the connection so tests can
+ * reopen with a different {@code auction.db.url} system property.</p>
  */
 public final class DatabaseManager {
 
@@ -76,7 +38,7 @@ public final class DatabaseManager {
             Class.forName("org.sqlite.JDBC");
             String url = resolveUrl();
             connection = DriverManager.getConnection(url);
-            // foreign_keys only — WAL removed (Windows temp-dir incompatibility)
+            // foreign_keys only - WAL removed (Windows temp-dir incompatibility)
             connection.createStatement().execute("PRAGMA foreign_keys=ON");
             initSchema();
             log.info("Database initialised at {}", url);
@@ -96,11 +58,6 @@ public final class DatabaseManager {
         return instance;
     }
 
-    /**
-     * Destroy the singleton and close the underlying connection.
-     * Call this in {@code @AfterAll} test teardown before changing
-     * {@code auction.db.url}.
-     */
     public static synchronized void resetForTesting() {
         if (instance != null) {
             try {

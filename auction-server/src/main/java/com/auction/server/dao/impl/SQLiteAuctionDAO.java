@@ -13,30 +13,26 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * FILE ROLE: SQLite implementation of AuctionDAO — the most complex DAO.
+ * JDBC implementation of {@link com.auction.server.dao.AuctionDAO} with multi-table SELECTs.
  *
- * The SELECT query (SELECT_BASE) is a 3-table JOIN:
- *   auctions → items → users (seller)
- *   auctions → users (winner, LEFT JOIN because winner may be null)
+ * <p><b>Runtime flow:</b> AuctionServer creates this DAO at server startup and injects it into
+ * AuctionService and BidService; those services call it during client request handling and scheduler
+ * close events.</p>
  *
- * This produces one wide row per auction containing all the data needed to
- * build both the Auction and its embedded Item object — zero extra queries.
- *
- * WHY A BASE SELECT STRING:
- *   findAll(), findBySellerId(), findByStatus(), and findById() all need the
- *   same JOIN but with different WHERE clauses.  Defining SELECT_BASE once
- *   and appending WHERE clauses avoids duplicating the JOIN on every method.
- *
- * FINE-GRAINED UPDATES:
- *   Rather than a single "UPDATE auctions SET ... everything ..." on every bid,
- *   we have targeted methods (updateCurrentPrice, updateEndTime, updateStatus,
- *   updateWinner).  Each touches only the columns that actually changed.
- *   This reduces write amplification and makes it easier to reason about
- *   what each code path is actually changing.
+ * <p>Because auctions embed an {@link com.auction.server.model.Item}, queries JOIN {@code items}
+ * (and often users for seller / winner names). Watch {@code rs.wasNull()} when mapping nullable winner ids.</p>
  */
 public final class SQLiteAuctionDAO implements AuctionDAO {
 
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
+
+    // FunctionalInterface: lets each query pass only its parameter-binding step into shared JDBC helpers.
+    @FunctionalInterface
+    private interface StatementBinder {
+        void bind(PreparedStatement ps) throws SQLException;
+    }
+
+    private static final StatementBinder NO_BINDING = ps -> {};
 
     // The base SELECT that all read methods build on.
     // Aliases prevent column-name ambiguity when multiple tables have 'id' or 'created_at'.
@@ -89,39 +85,25 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
 
     @Override
     public synchronized Optional<Auction> findById(long id) {
-        String sql = SELECT_BASE + " WHERE a.id = ?";
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            ps.setLong(1, id);
-            ResultSet rs = ps.executeQuery();
-            if (!rs.next()) return Optional.empty();
-            return Optional.of(map(rs));
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        return findOne(SELECT_BASE + " WHERE a.id = ?",
+                ps -> ps.setLong(1, id));
     }
 
     @Override
     public synchronized List<Auction> findAll() {
-        String sql = SELECT_BASE + " ORDER BY a.id DESC"; // newest first in the list
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            return mapList(ps.executeQuery());
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        return findMany(SELECT_BASE + " ORDER BY a.id DESC", NO_BINDING); // newest first
     }
 
     @Override
     public synchronized List<Auction> findBySellerId(long sellerId) {
-        String sql = SELECT_BASE + " WHERE a.seller_id = ? ORDER BY a.id DESC";
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            ps.setLong(1, sellerId);
-            return mapList(ps.executeQuery());
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        return findMany(SELECT_BASE + " WHERE a.seller_id = ? ORDER BY a.id DESC",
+                ps -> ps.setLong(1, sellerId));
     }
 
     @Override
     public synchronized List<Auction> findByStatus(AuctionStatus status) {
-        String sql = SELECT_BASE + " WHERE a.status = ?";
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            ps.setString(1, status.name());
-            return mapList(ps.executeQuery());
-        } catch (SQLException e) { throw new RuntimeException(e); }
+        return findMany(SELECT_BASE + " WHERE a.status = ?",
+                ps -> ps.setString(1, status.name()));
     }
 
     @Override
@@ -136,7 +118,7 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
 
     @Override
     public synchronized void updateCurrentPrice(long auctionId, double price, long leadingBidderId) {
-        // Both price and winner are always updated together — they are logically atomic.
+        // Both price and winner are always updated together - they are logically atomic.
         try (PreparedStatement ps = conn().prepareStatement(
                 "UPDATE auctions SET current_price = ?, winner_id = ? WHERE id = ?")) {
             ps.setDouble(1, price);
@@ -167,7 +149,23 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
         } catch (SQLException e) { throw new RuntimeException(e); }
     }
 
-    // ── ResultSet → domain object mapping ─────────────────────────────────────
+    // ResultSet -> domain object mapping
+
+    private Optional<Auction> findOne(String sql, StatementBinder binder) {
+        try (PreparedStatement ps = conn().prepareStatement(sql)) {
+            binder.bind(ps);
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) return Optional.empty();
+            return Optional.of(map(rs));
+        } catch (SQLException e) { throw new RuntimeException(e); }
+    }
+
+    private List<Auction> findMany(String sql, StatementBinder binder) {
+        try (PreparedStatement ps = conn().prepareStatement(sql)) {
+            binder.bind(ps);
+            return mapList(ps.executeQuery());
+        } catch (SQLException e) { throw new RuntimeException(e); }
+    }
 
     private List<Auction> mapList(ResultSet rs) throws SQLException {
         List<Auction> list = new ArrayList<>();
@@ -175,13 +173,6 @@ public final class SQLiteAuctionDAO implements AuctionDAO {
         return list;
     }
 
-    /**
-     * Map one wide JOIN row to an Auction with an embedded Item.
-     *
-     * rs.wasNull() after getLong("winner_id") is necessary because SQLite returns 0
-     * for NULL long columns, which would be confused with a real user id of 0.
-     * wasNull() checks whether the last retrieved column was actually NULL.
-     */
     private Auction map(ResultSet rs) throws SQLException {
         Auction a = new Auction();
         a.setId(rs.getLong("id"));

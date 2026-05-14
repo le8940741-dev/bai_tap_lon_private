@@ -4,6 +4,8 @@ import com.auction.client.network.ServerConnection;
 import com.auction.client.network.ServerConnection.BroadcastListener;
 import com.auction.client.session.ClientSession;
 import com.auction.client.util.AlertUtil;
+import com.auction.client.util.DisplayFormat;
+import com.auction.client.util.ImageSourceResolver;
 import com.auction.client.util.SceneManager;
 import com.auction.common.dto.AuctionDTO;
 import com.auction.common.dto.BidDTO;
@@ -17,7 +19,6 @@ import com.auction.common.request.Requests.WatchAuctionRequest;
 import com.auction.common.request.Responses.AuctionExtendedNotice;
 import com.auction.common.request.Responses.BidHistoryResponse;
 import com.auction.common.request.Responses.BidResponse;
-import com.auction.common.request.Responses.ErrorResponse;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -35,7 +36,6 @@ import javafx.scene.image.ImageView;
 import javafx.scene.text.Text;
 import javafx.util.StringConverter;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -44,6 +44,24 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
+/**
+ * FXML controller for {@code auction_detail.fxml} — the richest client screen.
+ *
+ * <p><b>Dual communication paths:</b> (1) normal request/response for detail, bids, placing bids.
+ * (2) Implements {@link com.auction.client.network.ServerConnection.BroadcastListener} so the
+ * {@link com.auction.client.network.ServerConnection} reader thread can push competitor bids,
+ * auction end, and anti-snipe extensions while this view is open.</p>
+ *
+ * <p><b>JavaFX charts and generics:</b> {@link javafx.scene.chart.LineChart} is parameterized as
+ * {@code LineChart<Number, Number>} with an {@link javafx.collections.ObservableList} of
+ * {@link com.auction.common.dto.BidDTO} rows in the table — study how model objects map to UI cells.</p>
+ */
+/**
+ * Owns the active auction detail view and bridges request/response data with live broadcast callbacks.
+ *
+ * <p>SceneManager creates a fresh instance for each selected auction, then loadAuction() subscribes
+ * this controller to bid, auction-end, and anti-snipe updates until onBack() unsubscribes.</p>
+ */
 public final class AuctionDetailController implements BroadcastListener {
 
     private static final DateTimeFormatter TIME_FORMAT =
@@ -120,7 +138,10 @@ public final class AuctionDetailController implements BroadcastListener {
         yAxis.setForceZeroInRange(false);
         yAxis.setLabel("Price ($)");
 
-        boolean canBid = ClientSession.getInstance().isBidder();
+        showBidControls(ClientSession.getInstance().isBidder());
+    }
+
+    private void showBidControls(boolean canBid) {
         bidAmountField.setVisible(canBid);
         bidButton.setVisible(canBid);
         autoBidMaxField.setVisible(canBid);
@@ -151,18 +172,17 @@ public final class AuctionDetailController implements BroadcastListener {
                 new GetAuctionDetailRequest(auctionId),
                 conn.getGson());
 
-        conn.send(detailMsg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(detailMsg, (resp, ex) -> {
             if (ex != null) {
                 AlertUtil.error("Error", ex.getMessage());
                 return;
             }
             if (resp.getType() == MessageType.ERROR) {
-                AlertUtil.error("Error",
-                        resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                AlertUtil.error("Error", conn.errorMessage(resp));
                 return;
             }
             populateDetails(resp.parsePayload(conn.getGson(), AuctionDTO.class));
-        }));
+        });
     }
 
     private void populateDetails(AuctionDTO auction) {
@@ -176,7 +196,7 @@ public final class AuctionDetailController implements BroadcastListener {
         labelLeader.setText(
                 auction.getWinnerName() != null ? auction.getWinnerName() : "No bids yet");
         labelStatus.setText(auction.getStatus());
-        labelEndTime.setText(formatIso(auction.getEndTime()));
+        labelEndTime.setText(DisplayFormat.isoToMinuteLabel(auction.getEndTime()));
 
         try {
             LocalDateTime end = LocalDateTime.parse(auction.getEndTime());
@@ -195,21 +215,20 @@ public final class AuctionDetailController implements BroadcastListener {
                 new GetBidHistoryRequest(auctionId),
                 conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             if (ex != null) {
                 bidStatusLabel.setText("Error: " + ex.getMessage());
                 return;
             }
             if (resp.getType() == MessageType.ERROR) {
-                bidStatusLabel.setText(
-                        resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                bidStatusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             BidHistoryResponse history = resp.parsePayload(conn.getGson(), BidHistoryResponse.class);
             List<BidDTO> bids = history.bids != null ? history.bids : List.of();
             bidList.setAll(bids);
             rebuildChart(bids);
-        }));
+        });
     }
 
     @Override
@@ -249,7 +268,7 @@ public final class AuctionDetailController implements BroadcastListener {
         if (notice.auctionId != currentAuctionId) {
             return;
         }
-        labelEndTime.setText(formatIso(notice.newEndTime) + " (extended)");
+        labelEndTime.setText(DisplayFormat.isoToMinuteLabel(notice.newEndTime) + " (extended)");
         try {
             LocalDateTime newEnd = LocalDateTime.parse(notice.newEndTime);
             endTimeEpochSec = newEnd.atZone(ZoneId.systemDefault()).toEpochSecond();
@@ -261,12 +280,8 @@ public final class AuctionDetailController implements BroadcastListener {
 
     @FXML
     private void onPlaceBid() {
-        String text = bidAmountField.getText().trim();
-        double amount;
-        try {
-            amount = Double.parseDouble(text);
-        } catch (NumberFormatException e) {
-            bidStatusLabel.setText("Invalid amount.");
+        Double amount = parseDoubleField(bidAmountField, "Invalid amount.");
+        if (amount == null) {
             return;
         }
 
@@ -277,33 +292,26 @@ public final class AuctionDetailController implements BroadcastListener {
                 new PlaceBidRequest(currentAuctionId, amount),
                 conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             bidButton.setDisable(false);
             if (ex != null) {
                 bidStatusLabel.setText("Error: " + ex.getMessage());
                 return;
             }
             if (resp.getType() == MessageType.ERROR) {
-                bidStatusLabel.setText(
-                        resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                bidStatusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             bidAmountField.clear();
             bidStatusLabel.setText("Bid placed!");
-        }));
+        });
     }
 
     @FXML
     private void onSetAutoBid() {
-        String maxText = autoBidMaxField.getText().trim();
-        String incrText = autoBidIncrField.getText().trim();
-        double maxBid;
-        double increment;
-        try {
-            maxBid = Double.parseDouble(maxText);
-            increment = Double.parseDouble(incrText);
-        } catch (NumberFormatException e) {
-            bidStatusLabel.setText("Invalid auto-bid values.");
+        Double maxBid = parseDoubleField(autoBidMaxField, "Invalid auto-bid values.");
+        Double increment = parseDoubleField(autoBidIncrField, "Invalid auto-bid values.");
+        if (maxBid == null || increment == null) {
             return;
         }
 
@@ -314,21 +322,20 @@ public final class AuctionDetailController implements BroadcastListener {
                 new SetAutoBidRequest(currentAuctionId, maxBid, increment),
                 conn.getGson());
 
-        conn.send(msg).whenCompleteAsync((resp, ex) -> Platform.runLater(() -> {
+        conn.sendOnFxThread(msg, (resp, ex) -> {
             autoBidButton.setDisable(false);
             if (ex != null) {
                 bidStatusLabel.setText("Error: " + ex.getMessage());
                 return;
             }
             if (resp.getType() == MessageType.ERROR) {
-                bidStatusLabel.setText(
-                        resp.parsePayload(conn.getGson(), ErrorResponse.class).message);
+                bidStatusLabel.setText(conn.errorMessage(resp));
                 return;
             }
             bidStatusLabel.setText("Auto-bid saved.");
             loadAuctionDetail(currentAuctionId);
             loadBidHistory(currentAuctionId);
-        }));
+        });
     }
 
     @FXML
@@ -357,8 +364,17 @@ public final class AuctionDetailController implements BroadcastListener {
         priceSeries.getData().add(new XYChart.Data<>(epochMs / 1000.0, price));
     }
 
+    private Double parseDoubleField(TextField field, String errorMessage) {
+        try {
+            return Double.parseDouble(field.getText().trim());
+        } catch (NumberFormatException e) {
+            bidStatusLabel.setText(errorMessage);
+            return null;
+        }
+    }
+
     private void showItemImage(String imageSource) {
-        String normalized = normalizeImageSource(imageSource);
+        String normalized = ImageSourceResolver.toImageSource(imageSource);
         if (normalized == null) {
             setImagePlaceholder("No product image.");
             return;
@@ -386,30 +402,9 @@ public final class AuctionDetailController implements BroadcastListener {
         itemImagePlaceholder.setVisible(true);
     }
 
-    private String normalizeImageSource(String imageSource) {
-        if (imageSource == null || imageSource.isBlank()) {
-            return null;
-        }
-
-        String trimmed = imageSource.trim();
-        String lower = trimmed.toLowerCase();
-        if (lower.startsWith("http://")
-                || lower.startsWith("https://")
-                || lower.startsWith("file:/")
-                || lower.startsWith("jar:")
-                || lower.startsWith("data:")) {
-            return trimmed;
-        }
-
-        try {
-            return Path.of(trimmed).toAbsolutePath().toUri().toString();
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     private void startCountdown() {
         stopCountdown();
+        // Timer: a lightweight JDK scheduler; used here because the countdown is view-local UI state.
         countdownTimer = new Timer(true);
         countdownTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -427,6 +422,7 @@ public final class AuctionDetailController implements BroadcastListener {
                 }
 
                 String finalText = text;
+                // Platform.runLater: TimerTask runs off the FX thread, so label updates must be queued here.
                 Platform.runLater(() -> labelCountdown.setText(finalText));
             }
         }, 0, 1000);
@@ -437,13 +433,6 @@ public final class AuctionDetailController implements BroadcastListener {
             countdownTimer.cancel();
             countdownTimer = null;
         }
-    }
-
-    private String formatIso(String iso) {
-        if (iso == null) {
-            return "";
-        }
-        return iso.replace("T", " ").substring(0, Math.min(16, iso.length()));
     }
 
     private String formatMs(long ms) {

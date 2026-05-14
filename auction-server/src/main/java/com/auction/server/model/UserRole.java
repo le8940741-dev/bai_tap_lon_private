@@ -1,16 +1,9 @@
 package com.auction.server.model;
 
 /**
- * FILE ROLE: Enumeration of the three user roles in the system.
+ * Strongly typed role names stored in the {@code users.role} column and mirrored in {@link com.auction.common.dto.UserDTO}.
  *
- * Stored as TEXT in SQLite (not as an integer code) so the database is
- * human-readable without a lookup table.
- *
- * Used in:
- *   - User.getRole() — every User subclass returns one of these.
- *   - SQLiteUserDAO.map() — converts the DB TEXT back to this enum.
- *   - UserFactory.create(roleName) — parses the string from RegisterRequest.
- *   - ClientHandler.requireAdmin() — checks if currentUser.getRole() == ADMIN.
+ * <p>Keeping permissions as enum constants avoids magic strings scattered through {@code if} statements.</p>
  */
 public enum UserRole {
     BIDDER,  // can place bids; cannot list items

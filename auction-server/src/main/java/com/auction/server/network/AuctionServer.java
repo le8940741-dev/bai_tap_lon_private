@@ -1,51 +1,41 @@
 package com.auction.server.network;
 
-// ── DAO implementations (concrete classes wired here) ─────────────────────────
-import com.auction.server.dao.impl.*;  // SQLiteUserDAO, SQLiteItemDAO, etc.
-
-// ── Services (one shared instance per server process) ─────────────────────────
-import com.auction.server.service.*;  // UserService, ItemService, AuctionService, BidService
-
-// ── JSON ──────────────────────────────────────────────────────────────────────
+import com.auction.server.dao.impl.SQLiteAuctionDAO;
+import com.auction.server.dao.impl.SQLiteAutoBidDAO;
+import com.auction.server.dao.impl.SQLiteBidDAO;
+import com.auction.server.dao.impl.SQLiteItemDAO;
+import com.auction.server.dao.impl.SQLiteUserDAO;
+import com.auction.server.service.AuctionService;
+import com.auction.server.service.BidService;
+import com.auction.server.service.ItemService;
+import com.auction.server.service.UserService;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder; // fluent builder for configuring Gson
+import com.google.gson.GsonBuilder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// ── Java networking and concurrency ───────────────────────────────────────────
 import java.io.IOException;
-import java.net.ServerSocket; // listens for incoming TCP connections
-import java.net.Socket;       // one connected client socket per accepted connection
-import java.util.concurrent.ExecutorService; // thread pool that runs ClientHandlers
-import java.util.concurrent.Executors;       // factory for thread pool implementations
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * FILE ROLE: TCP server that accepts connections and wires the whole application together.
+ * Listens on a TCP port and hands each new socket to a {@link ClientHandler}.
  *
- * This class does two things:
- *   1. DEPENDENCY WIRING (Manual DI):
- *      Creates all DAOs, services, and the shared Gson instance.
- *      Injects them into each ClientHandler via constructor arguments.
- *      No DI framework (Spring, Guice) is used — at this scale, manual wiring
- *      in one place is simpler and more transparent.
+ * <p><b>Composition (manual wiring):</b> The constructor builds the persistence layer
+ * (SQLite DAO implementations), then the service layer on top, then stores those services.
+ * This is <i>not</i> Spring — dependencies are visible in one place so a student can trace
+ * {@code new BidService(auctionDAO, ...)} without XML or annotations.</p>
  *
- *   2. ACCEPT LOOP:
- *      Blocks on serverSocket.accept() in a loop.
- *      Each accepted connection gets its own ClientHandler submitted to the thread pool.
- *      The thread pool (Executors.newCachedThreadPool) creates a new thread per
- *      client, reusing idle threads when clients disconnect.
+ * <p><b>Concurrency:</b> {@link #start()} blocks in {@code accept()}. Each accepted
+ * {@link Socket} is processed on its own pool thread running {@link ClientHandler#run()},
+ * so many clients can talk at once. DAO methods use their own {@code synchronized} blocks
+ * where SQLite needs one writer at a time.</p>
  *
- * SHARED VS. PER-CLIENT STATE:
- *   Services (UserService, AuctionService, BidService, ItemService) are shared
- *   across all ClientHandlers — they are stateless except for the scheduler and
- *   lock maps in AuctionService/BidService, which are thread-safe.
- *
- *   Gson is also shared — Gson instances are thread-safe after construction.
- *
- *   Each ClientHandler has its own: Socket, PrintWriter, and currentUser field.
- *
- * CALLED BY: ServerMain
+ * <p><b>Gson note:</b> {@code serializeNulls()} keeps JSON fields such as {@code winnerId}
+ * as explicit {@code null} so the client DTOs do not break when Gson reads missing keys.</p>
  */
 public final class AuctionServer {
 
@@ -53,10 +43,10 @@ public final class AuctionServer {
 
     private final int port; // TCP port to listen on (default 9090, from ServerMain)
 
-    // Shared Gson instance — thread-safe; reused across all ClientHandlers.
+    // Shared Gson instance - thread-safe; reused across all ClientHandlers.
     private final Gson gson;
 
-    // ── Shared services (stateless business logic + thread-safe state) ─────────
+    // Shared services (stateless business logic + thread-safe state)
     private final UserService    userService;
     private final ItemService    itemService;
     private final AuctionService auctionService;
@@ -71,17 +61,6 @@ public final class AuctionServer {
                 return t;
             });
 
-    /**
-     * Construct the server: instantiate all DAOs and services.
-     *
-     * WHY MANUAL DI:
-     *   The dependency graph is shallow (3 layers: DAO → Service → Handler).
-     *   A DI framework would add complexity (annotations, classpath scanning,
-     *   startup time) for no real benefit at this scale.
-     *   Every dependency is explicit and traceable in this constructor.
-     *
-     * @param port the TCP port to listen on
-     */
     public AuctionServer(int port) {
         this.port = port;
         // serializeNulls(): ensures null fields (e.g. winnerId before any bids)
@@ -90,14 +69,14 @@ public final class AuctionServer {
         // tries to read a field that isn't present.
         this.gson = new GsonBuilder().serializeNulls().create();
 
-        // ── Instantiate DAOs (bottom layer — talks to SQLite) ──────────────────
+        // Instantiate DAOs (bottom layer - talks to SQLite)
         SQLiteUserDAO    userDAO    = new SQLiteUserDAO();
         SQLiteItemDAO    itemDAO    = new SQLiteItemDAO();
         SQLiteAuctionDAO auctionDAO = new SQLiteAuctionDAO();
         SQLiteBidDAO     bidDAO     = new SQLiteBidDAO();
         SQLiteAutoBidDAO autoBidDAO = new SQLiteAutoBidDAO();
 
-        // ── Instantiate services (middle layer — business logic) ───────────────
+        // Instantiate services (middle layer - business logic)
         // AuctionService must be created before BidService because BidService
         // calls auctionService.markRunning() and auctionService.applyAntiSnipe().
         userService    = new UserService(userDAO);
@@ -106,15 +85,6 @@ public final class AuctionServer {
         bidService     = new BidService(auctionDAO, bidDAO, autoBidDAO, auctionService);
     }
 
-    /**
-     * Start the server: open the ServerSocket and enter the accept loop.
-     *
-     * ServerSocket(port) binds to all network interfaces on the given port.
-     * The try-with-resources closes the ServerSocket on exit, which causes
-     * any blocked accept() call to throw IOException and break the loop cleanly.
-     *
-     * @throws IOException if the port is already in use or the socket can't be created
-     */
     public void start() throws IOException {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             log.info("Auction server listening on port {}", port);

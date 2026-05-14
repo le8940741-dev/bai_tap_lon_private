@@ -1,19 +1,10 @@
 package com.auction.common.dto;
 
 /**
- * FILE ROLE: Wire representation of a single placed bid.
+ * Wire representation of a bid row stored on the server (see server {@code BidTransaction}) including chart-friendly epoch millis.
  *
- * Travels in two scenarios:
- *   1. As part of BidHistoryResponse (a full list loaded when entering detail screen).
- *   2. As part of BidResponse inside a BID_BROADCAST (live update to all watchers).
- *
- * The dual timestamp fields (String + long millis) serve different purposes:
- *   - 'timestamp' (ISO-8601 String) is for display: "14:32:07"
- *   - 'timestampMillis' (epoch milliseconds) is the X-axis value for the
- *     JavaFX LineChart — charts need numeric values, not strings.
- *
- * 'autoBid' lets the UI label a bid row as "AUTO" so users can tell whether
- * a bid was placed manually or by the auto-bidding algorithm.
+ * <p>JavaFX {@code NumberAxis} needs numbers, so {@link #timestampMillis} parallels the
+ * ISO string in {@link #timestamp} — both originate from the same instant when the server builds this DTO.</p>
  */
 public class BidDTO {
 
@@ -22,13 +13,13 @@ public class BidDTO {
     private long bidderId;     // which user placed the bid
     private String bidderName; // denormalised username for display without a lookup
     private double amount;     // the bid amount accepted by the server
-    private String timestamp;  // ISO-8601 string: "2026-04-22T14:32:07" — for display
-    private long timestampMillis; // epoch milliseconds — for the LineChart X-axis
+    private String timestamp;  // ISO-8601 string: "2026-04-22T14:32:07" - for display
+    private long timestampMillis; // epoch milliseconds - for the LineChart X-axis
     private boolean autoBid;   // true if BidService placed this automatically
 
     public BidDTO() {} // required by Gson
 
-    // ── Getters ───────────────────────────────────────────────────────────────
+    // Getters
 
     /** Database primary key of this bid record. */
     public long getId() { return id; }
@@ -39,7 +30,7 @@ public class BidDTO {
     /** The user who placed (or triggered via auto-bid) this bid. */
     public long getBidderId() { return bidderId; }
 
-    /** The bidder's username — shown in the bid history table. */
+    /** The bidder's username - shown in the bid history table. */
     public String getBidderName() { return bidderName; }
 
     /** The accepted bid amount.  Always > the previous currentPrice. */
@@ -60,7 +51,7 @@ public class BidDTO {
      */
     public boolean isAutoBid() { return autoBid; }
 
-    // ── Setters (needed by Gson) ───────────────────────────────────────────────
+    // Setters (needed by Gson)
     public void setId(long id) { this.id = id; }
     public void setAuctionId(long auctionId) { this.auctionId = auctionId; }
     public void setBidderId(long bidderId) { this.bidderId = bidderId; }

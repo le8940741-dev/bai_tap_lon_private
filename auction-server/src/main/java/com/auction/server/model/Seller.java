@@ -1,28 +1,17 @@
 package com.auction.server.model;
 
 /**
- * FILE ROLE: Concrete user type representing an item seller.
+ * Concrete {@link User} role representing vendors who list inventory.
  *
- * Sellers can:
- *   - Create items (CREATE_ITEM request)
- *   - Open auctions for their items (CREATE_AUCTION request)
- *   - Cancel their own open/running auctions (CANCEL_AUCTION)
- *   - Browse all auctions (anyone can)
- *
- * Sellers cannot:
- *   - Place bids (canBid() = false — they cannot buy their own items)
- *   - Access admin functions
- *
- * The SellerDashboardController is shown exclusively to Seller accounts after login.
+ * <p>{@link com.auction.server.service.ItemService} and {@link com.auction.server.service.AuctionService}
+ * check {@link #canSell()} before mutating catalog tables.</p>
  */
 public final class Seller extends User {
     public Seller() { super(); }
 
     @Override public UserRole getRole() { return UserRole.SELLER; }
 
-    /** False — Sellers are prohibited from bidding to prevent self-dealing. */
     @Override public boolean canBid()  { return false; }
 
-    /** True — Sellers are the only users allowed to list items. */
     @Override public boolean canSell() { return true; }
 }

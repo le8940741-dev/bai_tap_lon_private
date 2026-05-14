@@ -1,65 +1,38 @@
 package com.auction.client.util;
 
-// FXMLLoader parses .fxml XML files and instantiates the declared JavaFX scene graph.
 import javafx.fxml.FXMLLoader;
-
-// Parent is the base class for all JavaFX scene-graph root nodes.
 import javafx.scene.Parent;
-
-// Scene is the container for the root node; exactly one Scene per Stage.
 import javafx.scene.Scene;
-
-// Stage is the OS window — the top-level container managed by JavaFX.
 import javafx.stage.Stage;
 
 import java.io.IOException;
-import java.util.HashMap;  // cache for loaded FXML roots
-import java.util.Map;      // Map interface for the cache
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * FILE ROLE: Centralised scene (screen) switcher for the JavaFX client.
+ * MVC navigation helper: loads FXML documents, caches roots, swaps {@link Scene} on the primary {@link Stage}.
  *
- * PROBLEM IT SOLVES:
- *   Switching between screens in JavaFX requires:
- *     1. Loading the FXML file (slow — parses XML and instantiates nodes).
- *     2. Getting the controller from the loader.
- *     3. Swapping the root node on the existing Scene.
- *   Without a manager, every controller would repeat this boilerplate and
- *   either reload FXML every time (slow) or manage its own caches (messy).
+ * <p><b>Why a manager class?</b> Controllers should not each own {@code new Stage()} — this keeps
+ * window sizing, min bounds, and back-stack behaviour consistent. {@link View} is an {@code enum}
+ * listing every screen path so typos fail at compile time.</p>
  *
- * CACHING:
- *   Once a View is loaded, its root Parent and controller are cached in maps.
- *   Navigating back to an already-visited screen reuses the cached objects —
- *   no XML reparsing.  Exception: AUCTION_DETAIL is never cached because it
- *   receives an auctionId parameter that varies per visit.
- *
- * REFRESHABLE INTERFACE:
- *   Controllers that need to reload data on every visit (AuctionListController,
- *   SellerDashboardController, AdminController) implement Refreshable.
- *   switchTo() calls refresh() after setting the root, so the table data is
- *   always current when navigating to a screen, even from the cache.
- *
- * CSS:
- *   The stylesheet is attached to the Scene once (at first load).
- *   All subsequent root swaps inherit the stylesheet automatically because CSS
- *   is attached to the Scene, not to individual root nodes.
- *
- * USED BY: All controllers (to navigate to another screen) and ClientMain (to set up initial screen).
+ * <p><b>Interaction:</b> {@link com.auction.client.ClientMain} calls {@link #init(Stage)} once.
+ * After login, {@link com.auction.client.controller.LoginController} calls {@link #switchTo(View)}
+ * to show the correct dashboard for the user’s role.</p>
  */
 public final class SceneManager {
 
     /**
-     * Marker interface for controllers that need to refresh data on every visit.
-     * SceneManager calls refresh() after every switchTo() if the controller implements this.
+     * Implemented by controllers backed by tables that should reload whenever the scene becomes visible again.
      */
     public interface Refreshable {
         void refresh();
     }
 
     /**
-     * Enum of all screens in the application.
-     * Each constant holds the classpath-relative path to its FXML file.
-     * Adding a new screen: add a constant here + create the FXML + create the controller.
+     * Catalog of FXML resources bundled inside the client JAR ({@code src/main/resources}).
+     *
+     * <p>Each constant knows its classpath string so navigation code cannot miss a leading slash.</p>
      */
     public enum View {
         LOGIN           ("/com/auction/client/fxml/login.fxml"),
@@ -69,23 +42,20 @@ public final class SceneManager {
         SELLER_DASHBOARD("/com/auction/client/fxml/seller_dashboard.fxml"),
         ADMIN_PANEL     ("/com/auction/client/fxml/admin_panel.fxml");
 
-        public final String fxmlPath; // the resource path passed to FXMLLoader
+        public final String fxmlPath;
         View(String path) { this.fxmlPath = path; }
     }
 
-    private static Stage primaryStage; // the app's single window; assigned via SceneManager.init() from ClientMain.start()
+    private static Stage primaryStage;
 
-    // Cache: View → loaded root node (avoiding re-parsing FXML on every navigation).
     private static final Map<View, Parent> cachedRoots       = new HashMap<>();
-
-    // Cache: View → controller instance (for calling refresh()).
     private static final Map<View, Object> cachedControllers = new HashMap<>();
 
-    private SceneManager() {} // utility class — no instances
+    private SceneManager() {}
 
     /**
      * Must be called once in ClientMain.start() before any switchTo() call.
-     * Stores the single Stage shared by every screen in the client.
+     * Stores the main window used by every screen.
      */
     public static void init(Stage stage) { primaryStage = stage; }
 
@@ -93,16 +63,7 @@ public final class SceneManager {
     public static Stage getStage() { return primaryStage; }
 
     /**
-     * Switch the displayed screen to the given View.
-     *
-     * If the View has been loaded before:
-     *   - Retrieve root and controller from cache.
-     * If not:
-     *   - Load the FXML, cache the root and controller.
-     * Then:
-     *   - If the controller implements Refreshable, call refresh() to reload data.
-     *   - Swap the Scene's root node (or create a new Scene if this is the first view).
-     *   - Attach the CSS stylesheet on first Scene creation.
+     * Show the requested screen, loading and caching it on first use.
      *
      * @param view the screen to navigate to
      */
@@ -112,7 +73,7 @@ public final class SceneManager {
             Object controller = cachedControllers.get(view);
 
             if (root == null) {
-                // First visit — load from FXML and cache.
+                // First visit: load from FXML and cache the result.
                 FXMLLoader loader = new FXMLLoader(
                         SceneManager.class.getResource(view.fxmlPath));
                 root = loader.load();
@@ -121,19 +82,19 @@ public final class SceneManager {
                 cachedControllers.put(view, controller);
             }
 
-            // Refresh data if the controller supports it.
+            // Refresh data if this controller supports it.
             if (controller instanceof Refreshable r) r.refresh();
 
             Scene scene = primaryStage.getScene();
             if (scene == null) {
-                // First screen — create the Scene and attach CSS.
+                // First screen: create the Scene and attach CSS.
                 scene = new Scene(root);
                 scene.getStylesheets().add(
                         SceneManager.class.getResource(
                                 "/com/auction/client/css/style.css").toExternalForm());
                 primaryStage.setScene(scene);
             } else {
-                // Subsequent screens — just swap the root; CSS stays attached.
+                // Later screens only need to swap the root.
                 scene.setRoot(root);
             }
             primaryStage.show();
@@ -143,12 +104,8 @@ public final class SceneManager {
     }
 
     /**
-     * Special navigation method for the auction detail screen.
-     *
-     * AUCTION_DETAIL is never cached because each visit is for a different
-     * auction (different auctionId parameter).  A fresh FXMLLoader + controller
-     * is created every time, and loadAuction(id) is called on the controller
-     * to trigger data loading and server subscription.
+     * Open an auction detail screen for a specific auction.
+     * This view is not cached because each visit has a different auction id.
      *
      * @param auctionId the database id of the auction to display
      */
@@ -158,7 +115,7 @@ public final class SceneManager {
                     SceneManager.class.getResource(View.AUCTION_DETAIL.fxmlPath));
             Parent root = loader.load();
             com.auction.client.controller.AuctionDetailController ctrl = loader.getController();
-            ctrl.loadAuction(auctionId); // trigger data load + WATCH_AUCTION subscription
+            ctrl.loadAuction(auctionId);
 
             Scene scene = primaryStage.getScene();
             if (scene == null) {
@@ -178,16 +135,14 @@ public final class SceneManager {
     }
 
     /**
-     * Remove a cached View so it is reloaded fresh on the next switchTo().
-     * Called after logout to prevent stale user data from showing
-     * if a different user logs in on the same client session.
+     * Remove a cached view so it loads fresh next time.
      */
     public static void evict(View view) {
         cachedRoots.remove(view);
         cachedControllers.remove(view);
     }
 
-    /** Evict all cached views (called on logout). */
+    /** Clear all cached screens, usually after logout. */
     public static void evictAll() {
         cachedRoots.clear();
         cachedControllers.clear();

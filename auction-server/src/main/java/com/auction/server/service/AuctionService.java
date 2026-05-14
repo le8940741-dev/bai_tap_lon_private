@@ -13,49 +13,26 @@ import java.util.List;                             // return type for list queri
 import java.util.concurrent.*;                     // ScheduledExecutorService, ScheduledFuture, TimeUnit
 
 /**
- * FILE ROLE: Manages auction lifecycle — creation, scheduling, anti-sniping, and closure.
+ * Owns the auction <b>lifecycle</b>: create rows, cancel, schedule automatic close, apply anti-snipe.
  *
- * TWO RESPONSIBILITIES (deliberately kept together because they are tightly coupled):
- *   1. CRUD operations: createAuction(), getAuction(), getAllAuctions(), cancelAuction()
- *   2. Timer management: every auction gets a ScheduledFuture that fires closeAuction()
- *      at the correct end time.
+ * <p><b>Scheduler API:</b> Uses {@link java.util.concurrent.ScheduledExecutorService} so each auction’s
+ * {@code endTime} maps to a {@link java.util.concurrent.ScheduledFuture}. When the JVM restarts,
+ * DAO reads repopulate timers so unfinished auctions still close.</p>
  *
- * SCHEDULER:
- *   A single-thread ScheduledExecutorService fires closeAuction() for each auction
- *   at the right time.  Using a single thread avoids any concurrency within the
- *   scheduler itself — tasks queue up and execute one at a time.
- *
- *   ScheduledFutures are stored in 'closeFutures' keyed by auctionId so that
- *   anti-sniping (applyAntiSnipe) can cancel and reschedule the future when
- *   the end time is extended.  Without this, the original task would fire at the
- *   old end time even though the auction had been extended.
- *
- * ANTI-SNIPING ALGORITHM:
- *   If a bid arrives within ANTI_SNIPE_WINDOW_SECONDS (30) of the end time,
- *   the end time is extended by ANTI_SNIPE_EXTENSION_SECONDS (60).
- *   applyAntiSnipe() is called by BidService after every accepted bid,
- *   while BidService still holds the per-auction ReentrantLock.
- *
- * SERVER RESTART RECOVERY:
- *   restoreSchedules() is called from the constructor.  It queries for all
- *   OPEN and RUNNING auctions and reschedules their close tasks.
- *   Auctions whose endTime is in the past are closed immediately.
- *
- * CALLED BY: ClientHandler, BidService
+ * <p><b>Interaction:</b> {@link com.auction.server.service.BidService} calls back into here for
+ * {@code markRunning()} and time extensions so bid acceptance and time rules stay in one place.</p>
  */
 public final class AuctionService {
 
     private static final Logger log = LoggerFactory.getLogger(AuctionService.class);
 
-    /** Bids within this many seconds of end time trigger anti-sniping. */
     public static final int ANTI_SNIPE_WINDOW_SECONDS = 30;
 
-    /** How many seconds to add to the end time when anti-sniping fires. */
     public static final int ANTI_SNIPE_EXTENSION_SECONDS = 60;
 
     private final AuctionDAO auctionDAO;
 
-    // The singleton event bus — used to broadcast lifecycle events (end, extend).
+    // The singleton event bus - used to broadcast lifecycle events (end, extend).
     private final AuctionEventBus eventBus = AuctionEventBus.getInstance();
 
     // Single-thread scheduler: all auction close events fire sequentially.
@@ -67,7 +44,7 @@ public final class AuctionService {
                 return t;
             });
 
-    // Maps auctionId → the scheduled task that will close it.
+    // Maps auctionId -> the scheduled task that will close it.
     // ConcurrentHashMap because ClientHandler threads (reschedule on extension) and
     // the scheduler thread (remove on fire) both access it.
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> closeFutures =
@@ -78,27 +55,8 @@ public final class AuctionService {
         restoreSchedules(); // re-arm timers for in-progress auctions on startup
     }
 
-    // ── Creation ──────────────────────────────────────────────────────────────
+    // Creation
 
-    /**
-     * Create and persist a new auction, then schedule its automatic close task.
-     *
-     * Initial status:
-     *   - OPEN if startTime is in the future.
-     *   - RUNNING if startTime is now or in the past.
-     *
-     * Important nuance: in the current implementation, OPEN is mainly an
-     * initial lifecycle/display state. BidService does not re-check startTime
-     * before accepting a bid, so the first accepted bid can still flip an OPEN
-     * auction to RUNNING early via markRunning().
-     *
-     * @param item          the already-persisted item being auctioned
-     * @param startingPrice floor price; bids must exceed this
-     * @param startTime     requested opening time stored on the auction and used
-     *                      to decide the initial status
-     * @param endTime       when the auction auto-closes
-     * @param seller        the Seller creating this auction
-     */
     public Auction createAuction(Item item, double startingPrice,
                                   LocalDateTime startTime, LocalDateTime endTime,
                                   User seller) {
@@ -129,29 +87,21 @@ public final class AuctionService {
         return auction;
     }
 
-    // ── Queries ───────────────────────────────────────────────────────────────
+    // Queries
 
-    /** Fetch one auction by id; throws AuctionException if not found. */
     public Auction getAuction(long auctionId) {
         return auctionDAO.findById(auctionId)
                 .orElseThrow(() -> new AuctionException("Auction not found: " + auctionId));
     }
 
-    /** Return all auctions for the main list (newest first). */
     public List<Auction> getAllAuctions() { return auctionDAO.findAll(); }
 
-    /** Return all auctions owned by a specific seller (for the Seller Dashboard). */
     public List<Auction> getSellerAuctions(long sellerId) {
         return auctionDAO.findBySellerId(sellerId);
     }
 
-    // ── Cancellation ──────────────────────────────────────────────────────────
+    // Cancellation
 
-    /**
-     * Cancel an auction before it finishes.
-     * Allowed if requester is the seller who created it, or an Admin.
-     * Not allowed once the auction is FINISHED or PAID.
-     */
     public void cancelAuction(long auctionId, User requester) {
         Auction auction = getAuction(auctionId);
         if (auction.getSellerId() != requester.getId()
@@ -167,18 +117,8 @@ public final class AuctionService {
         cancelScheduledClose(auctionId); // prevent the scheduler from re-processing this
     }
 
-    // ── Anti-sniping (called by BidService under the auction lock) ─────────────
+    // Anti-sniping (called by BidService under the auction lock)
 
-    /**
-     * Check whether the most recent bid arrived within the anti-snipe window.
-     * If so, extend the end time and reschedule the close task.
-     *
-     * This method is called by BidService while it holds the per-auction
-     * ReentrantLock, so no concurrent bid can change the price between
-     * the check and the extension.
-     *
-     * @param auction the auction with its current (pre-extension) end time
-     */
     public void applyAntiSnipe(Auction auction) {
         LocalDateTime now = LocalDateTime.now();
         long secondsLeft = ChronoUnit.SECONDS.between(now, auction.getEndTime());
@@ -195,13 +135,8 @@ public final class AuctionService {
         }
     }
 
-    // ── Status helpers (called by BidService) ─────────────────────────────────
+    // Status helpers (called by BidService)
 
-    /**
-     * Transition an OPEN auction to RUNNING when its first bid arrives.
-     * Called by BidService.placeBid() before persisting the bid.
-     * No-op if the auction is already RUNNING.
-     */
     public void markRunning(Auction auction) {
         if (auction.getStatus() == AuctionStatus.OPEN) {
             auction.setStatus(AuctionStatus.RUNNING);
@@ -209,30 +144,20 @@ public final class AuctionService {
         }
     }
 
-    /**
-     * Close an auction when its scheduled task fires.
-     * If there was a leading bidder, they become the winner (FINISHED).
-     * If nobody bid, the auction is CANCELED.
-     * Either way, the event bus broadcasts the final state to watchers.
-     *
-     * Re-entrancy guard: if the auction is already in a terminal state
-     * (FINISHED, CANCELED, PAID), this is a no-op — prevents double-close
-     * on server restart when an auction's endTime is already in the past.
-     */
     public void closeAuction(long auctionId) {
         auctionDAO.findById(auctionId).ifPresent(auction -> {
-            // Terminal states — nothing to do.
+            // Terminal states - nothing to do.
             if (auction.getStatus() == AuctionStatus.FINISHED
                     || auction.getStatus() == AuctionStatus.CANCELED
                     || auction.getStatus() == AuctionStatus.PAID) return;
 
             if (auction.getLeadingBidderId() != null) {
-                // Someone bid — they win; transition to FINISHED.
+                // Someone bid - they win; transition to FINISHED.
                 auctionDAO.updateWinner(auctionId,
                         auction.getLeadingBidderId(), AuctionStatus.FINISHED);
                 auction.setStatus(AuctionStatus.FINISHED);
             } else {
-                // No bids — cancel the auction.
+                // No bids - cancel the auction.
                 auctionDAO.updateStatus(auctionId, AuctionStatus.CANCELED);
                 auction.setStatus(AuctionStatus.CANCELED);
             }
@@ -241,13 +166,12 @@ public final class AuctionService {
         });
     }
 
-    // ── Scheduler management ──────────────────────────────────────────────────
+    // Scheduler management
 
-    /** Schedule a future call to closeAuction() at auction.endTime. */
     private void scheduleClose(Auction auction) {
         long delayMs = ChronoUnit.MILLIS.between(LocalDateTime.now(), auction.getEndTime());
         if (delayMs <= 0) {
-            // End time is already past — close immediately (handles restart recovery).
+            // End time is already past - close immediately (handles restart recovery).
             scheduler.submit(() -> closeAuction(auction.getId()));
             return;
         }
@@ -256,22 +180,16 @@ public final class AuctionService {
         closeFutures.put(auction.getId(), future); // store for possible cancellation
     }
 
-    /** Cancel the existing close task and schedule a new one (called after anti-snipe). */
     private void rescheduleClose(Auction auction) {
         cancelScheduledClose(auction.getId());
         scheduleClose(auction);
     }
 
-    /** Cancel a scheduled close task without closing the auction (used by cancelAuction). */
     private void cancelScheduledClose(long auctionId) {
         ScheduledFuture<?> f = closeFutures.remove(auctionId);
         if (f != null) f.cancel(false); // false = don't interrupt if already running
     }
 
-    /**
-     * Re-arm close timers for OPEN and RUNNING auctions after server restart.
-     * Without this, auctions created before the server restart would never close.
-     */
     private void restoreSchedules() {
         List<Auction> open    = auctionDAO.findByStatus(AuctionStatus.OPEN);
         List<Auction> running = auctionDAO.findByStatus(AuctionStatus.RUNNING);

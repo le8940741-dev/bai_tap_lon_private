@@ -1,30 +1,16 @@
 package com.auction.common.dto;
 
 /**
- * FILE ROLE: Wire representation of an auction session.
+ * Composite wire object: auction header fields plus nested {@link ItemDTO} and leader snapshot strings.
  *
- * This is the richest DTO in the system — it embeds the full ItemDTO so the
- * client can display item details without a second request.  It also carries
- * the current leading bidder so the UI can highlight "You are winning!" states.
- *
- * STATUS LIFECYCLE (matches AuctionStatus enum on the server):
- *   OPEN      → auction created but start time hasn't arrived yet
- *   RUNNING   → accepting bids; start time has passed, end time hasn't
- *   FINISHED  → end time reached; winner determined
- *   PAID      → (future) payment confirmed
- *   CANCELED  → seller or admin cancelled it; no winner
- *
- * USED BY:
- *   - AuctionListController: populates the main TableView.
- *   - AuctionDetailController: drives all the labels and the countdown timer.
- *   - BidResponse: carries the auction's updated state after each bid.
- *   - AUCTION_END_BROADCAST: carries the final state when the auction closes.
+ * <p>Embedding {@link #item} avoids an extra round-trip when the list screen only needs titles — a
+ * pragmatic denormalization for a course project.</p>
  */
 public class AuctionDTO {
 
     private long id;            // database primary key
     private ItemDTO item;       // the item being auctioned (embedded, not a separate request)
-    private double startingPrice; // the floor — bids must be strictly above this
+    private double startingPrice; // the floor - bids must be strictly above this
     private double currentPrice;  // the highest bid so far (equals startingPrice if no bids)
     private String startTime;   // ISO-8601 when the auction opens for bidding
     private String endTime;     // ISO-8601 when the auction auto-closes
@@ -37,13 +23,13 @@ public class AuctionDTO {
 
     public AuctionDTO() {} // required by Gson
 
-    // ── Getters ───────────────────────────────────────────────────────────────
+    // Getters
 
     /** Database primary key used in all API requests that reference this auction. */
     public long getId() { return id; }
 
     /**
-     * The embedded item — name, description, category, extra data.
+     * The embedded item - name, description, category, extra data.
      * Embedding avoids a separate GET_AUCTION_DETAIL / GET_ITEM request
      * just to render the title and category in the list.
      */
@@ -64,7 +50,7 @@ public class AuctionDTO {
 
     /**
      * ISO-8601 end time string.
-     * May change during the auction if anti-sniping fires — the client receives
+     * May change during the auction if anti-sniping fires - the client receives
      * an AUCTION_EXTENDED broadcast and updates its countdown accordingly.
      */
     public String getEndTime() { return endTime; }
@@ -75,10 +61,10 @@ public class AuctionDTO {
      */
     public String getStatus() { return status; }
 
-    /** Seller's user id — used to decide whether Cancel button is visible. */
+    /** Seller's user id - used to decide whether Cancel button is visible. */
     public long getSellerId() { return sellerId; }
 
-    /** Seller's username — displayed in the detail screen. */
+    /** Seller's username - displayed in the detail screen. */
     public String getSellerName() { return sellerName; }
 
     /**
@@ -96,7 +82,7 @@ public class AuctionDTO {
     /** ISO-8601 creation timestamp. */
     public String getCreatedAt() { return createdAt; }
 
-    // ── Setters (needed by Gson) ───────────────────────────────────────────────
+    // Setters (needed by Gson)
     public void setId(long id) { this.id = id; }
     public void setItem(ItemDTO item) { this.item = item; }
     public void setStartingPrice(double startingPrice) { this.startingPrice = startingPrice; }

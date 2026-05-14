@@ -14,6 +14,7 @@ com\auction\server\observer\AuctionObserver.class
 com\auction\server\dao\impl\SQLiteUserDAO.class
 com\auction\server\dao\impl\SQLiteAuctionDAO.class
 com\auction\server\model\BidTransaction.class
+com\auction\server\dao\impl\SQLiteAuctionDAO$StatementBinder.class
 com\auction\server\model\Bidder.class
 com\auction\server\model\AuctionStatus.class
 com\auction\server\network\ClientHandler$1.class

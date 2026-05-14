@@ -1,27 +1,22 @@
 package com.auction.server;
 
-import com.auction.server.db.DatabaseManager; // singleton that initialises the SQLite schema
-import com.auction.server.network.AuctionServer; // the TCP server
+import com.auction.server.db.DatabaseManager;
+import com.auction.server.network.AuctionServer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * FILE ROLE: Server process entry point.
+ * {@code public static void main} entry point for the server JVM.
  *
- * Does three things in order:
- *   1. Parse the port from command-line args (default: 9090).
- *   2. Eagerly initialise DatabaseManager so the schema is created and the
- *      admin account is seeded BEFORE any client can connect.
- *   3. Construct and start AuctionServer, which blocks in the accept loop.
+ * <p><b>Startup order:</b> (1) {@link DatabaseManager#getInstance()} opens SQLite, creates
+ * tables if needed, seeds the default admin user. (2) {@link AuctionServer} is constructed,
+ * which builds DAOs and services. (3) {@link AuctionServer#start()} opens the listening socket
+ * and never returns until the process is stopped.</p>
  *
- * HOW TO RUN:
- *   java -jar auction-server-1.0.0-fat.jar          # port 9090
- *   java -jar auction-server-1.0.0-fat.jar 8080     # port 8080
- *
- * DEFAULT ADMIN CREDENTIALS:
- *   username: admin
- *   password: admin
+ * <p><b>Interaction:</b> Every other server class is reachable from here through that
+ * construction chain — there is no global {@code ApplicationContext}; follow {@code new}
+ * calls to learn the architecture.</p>
  */
 public final class ServerMain {
 

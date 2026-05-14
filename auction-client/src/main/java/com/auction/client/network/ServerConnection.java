@@ -1,98 +1,85 @@
 package com.auction.client.network;
 
-// ── Wire types (shared with server via auction-common) ────────────────────────
-import com.auction.common.protocol.Message;      // TCP envelope for every message
-import com.auction.common.protocol.MessageType;  // used to route broadcasts by type
-import com.auction.common.request.Responses.AuctionExtendedNotice; // anti-snipe broadcast payload
-import com.auction.common.request.Responses.BidResponse;           // bid event broadcast payload
-import com.auction.common.dto.AuctionDTO;        // auction end broadcast payload
+import com.auction.common.protocol.Message;
+import com.auction.common.protocol.MessageType;
+import com.auction.common.request.Responses.AuctionExtendedNotice;
+import com.auction.common.request.Responses.BidResponse;
+import com.auction.common.request.Responses.ErrorResponse;
+import com.auction.common.dto.AuctionDTO;
 
-// ── JSON ──────────────────────────────────────────────────────────────────────
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-// ── JavaFX thread utility ─────────────────────────────────────────────────────
-import javafx.application.Platform; // Platform.runLater() — schedules work on the FX thread
+import javafx.application.Platform;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// ── Java I/O and networking ───────────────────────────────────────────────────
-import java.io.*;   // BufferedReader, InputStreamReader, PrintWriter, IOException
-import java.net.Socket; // the TCP connection to the server
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.net.Socket;
 
-// ── Java concurrency ──────────────────────────────────────────────────────────
-import java.util.concurrent.*;  // CompletableFuture, ConcurrentHashMap, ExecutorService, Executors, TimeUnit
-import java.util.function.Consumer; // used in the BroadcastListener functional design
+import java.util.concurrent.*;
+import java.util.function.BiConsumer;
 
 /**
- * FILE ROLE: Manages the single persistent TCP connection from client to server.
+ * Wraps the client’s single TCP socket: sends requests and sorts incoming lines into
+ * “reply for a pending request” vs “live broadcast”.
  *
- * TWO COMMUNICATION PATTERNS in one class:
+ * <p><b>Runtime flow:</b> ClientMain creates one instance at startup and stores it in
+ * ClientSession; controllers call send(), sendOnFxThread(), or setBroadcastListener() until
+ * the application exits and disconnect() closes the socket.</p>
  *
- *   1. REQUEST-RESPONSE (CompletableFuture correlation):
- *      - send(msg) stores a CompletableFuture keyed by msg.requestId in 'pending'.
- *      - The reader thread sees a response with the matching requestId and
- *        calls future.complete(response), waking up the waiting controller.
- *      - Controllers call: conn.send(msg).whenCompleteAsync((response, ex) -> ...)
- *        — non-blocking; the callback runs when the server replies.
+ * <p><b>Threading model:</b> JavaFX must touch UI controls only on the FX thread. Network
+ * reads run on a background executor ({@code readLoop}). {@link CompletableFuture} completes
+ * on that reader thread, so controllers use {@link #sendOnFxThread(Message, BiConsumer)}
+ * before they update labels and tables.</p>
  *
- *   2. SERVER-PUSH BROADCASTS (BroadcastListener):
- *      - The server sends BID_BROADCAST / AUCTION_END_BROADCAST / AUCTION_EXTENDED
- *        with a brand-new requestId that no pending future is waiting for.
- *      - route() sees no matching future → calls dispatchBroadcast(msg).
- *      - dispatchBroadcast uses Platform.runLater() to call the registered
- *        BroadcastListener on the JavaFX Application Thread.
- *      - AuctionDetailController sets itself as the listener when it opens an auction.
+ * <p><b>Generics:</b> {@code ConcurrentHashMap<String, CompletableFuture<Message>>} maps each
+ * outgoing {@code requestId} to the future that should complete when the matching line arrives.</p>
  *
- * WHY Platform.runLater():
- *   JavaFX requires all UI updates to happen on the JavaFX Application Thread.
- *   The reader thread (server-reader) is NOT the FX thread — it's a background
- *   daemon thread.  Platform.runLater() schedules the callback to run on the FX
- *   thread, where it's safe to update labels, tables, and chart data.
- *
- * WHY CompletableFuture (not synchronized blocking):
- *   Blocking the FX thread waiting for a network response would freeze the UI.
- *   CompletableFuture lets us fire-and-forget on the FX thread and handle the
- *   response in a callback — the UI stays responsive during the round-trip.
+ * <p><b>Observer-style UI hook:</b> {@link BroadcastListener} is an inner interface — the
+ * auction detail controller implements it and registers with {@link #setBroadcastListener}
+ * while the screen is open.</p>
  */
 public final class ServerConnection {
 
     private static final Logger log = LoggerFactory.getLogger(ServerConnection.class);
 
     /**
-     * Callback interface for server-push broadcasts.
-     * AuctionDetailController implements this and sets itself via setBroadcastListener().
-     * Only one listener is active at a time (the currently open detail screen).
+     * Optional callback the UI registers while viewing a live auction.
+     * Methods always run on the JavaFX application thread via {@link Platform#runLater}.
      */
     public interface BroadcastListener {
-        /** Called (on FX thread) when a new bid is placed in the watched auction. */
+        /** Called on the FX thread when a new bid is placed. */
         void onBidBroadcast(BidResponse bidResponse);
 
-        /** Called (on FX thread) when the watched auction reaches FINISHED state. */
+        /** Called on the FX thread when the auction ends. */
         void onAuctionEnded(AuctionDTO auction);
 
-        /** Called (on FX thread) when anti-sniping extends the watched auction's end time. */
+        /** Called on the FX thread when anti-sniping extends the auction. */
         void onAuctionExtended(AuctionExtendedNotice notice);
     }
 
-    // Thread-safe Gson — reused for all serialisation/deserialisation.
+    // Reused for all JSON conversion.
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
-    private Socket socket;      // the TCP connection; null before connect()
-    private PrintWriter out;    // writes newline-delimited JSON to the socket
+    // Socket: one endpoint of the TCP connection; the client keeps exactly one open link to the server.
+    private Socket socket;
+    private PrintWriter out;
 
-    // Maps requestId (UUID string) → CompletableFuture waiting for the response.
-    // ConcurrentHashMap: reader thread completes futures; FX thread adds/removes them.
+    // Requests waiting for their matching server response.
     private final ConcurrentHashMap<String, CompletableFuture<Message>> pending =
             new ConcurrentHashMap<>();
 
-    // The currently registered broadcast listener (may be null if no detail screen is open).
-    // volatile: written by the FX thread (controller sets it), read by the reader thread.
+    // Read by the socket reader thread and changed by UI controllers.
     private volatile BroadcastListener broadcastListener;
 
-    // Single background thread that reads lines from the server socket.
-    // Daemon: exits when the JVM exits; won't block application shutdown.
+    // Background thread that reads one JSON line at a time from the server.
     private final ExecutorService readerThread =
             Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "server-reader");
@@ -100,11 +87,10 @@ public final class ServerConnection {
                 return t;
             });
 
-    // ── Connection management ─────────────────────────────────────────────────
+    // Connection management
 
     /**
-     * Open the TCP connection and start the reader thread.
-     * Called once from ClientMain before showing any UI.
+     * Open the TCP connection and start the background reader.
      *
      * @param host the server hostname or IP address (default "localhost")
      * @param port the server TCP port (default 9090)
@@ -114,12 +100,12 @@ public final class ServerConnection {
         socket = new Socket(host, port);
         out    = new PrintWriter(
                 new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())), true);
-        // Start the background reader; it will block on readLine() until data arrives.
+        // The reader blocks until the server sends a line.
         readerThread.submit(this::readLoop);
         log.info("Connected to {}:{}", host, port);
     }
 
-    /** Close the socket (triggers an IOException in readLoop, ending the reader thread). */
+    /** Close the socket and let the reader thread stop. */
     public void disconnect() {
         try { if (socket != null) socket.close(); } catch (IOException ignored) {}
     }
@@ -130,42 +116,47 @@ public final class ServerConnection {
     }
 
     /**
-     * Set the broadcast listener for server-push events.
-     * Called by AuctionDetailController when it opens a detail screen,
-     * and cleared (set to null) when the controller navigates away.
+     * Set or clear the listener for live auction updates.
      */
     public void setBroadcastListener(BroadcastListener listener) {
         this.broadcastListener = listener;
     }
 
-    // ── Request-response API ──────────────────────────────────────────────────
+    // Request-response API
 
     /**
-     * Send a Message to the server and return a CompletableFuture for its response.
-     *
-     * Steps:
-     *   1. Create a CompletableFuture and store it in 'pending' keyed by requestId.
-     *   2. Serialise the Message to JSON and write it to the socket.
-     *   3. Return the future — the caller attaches a whenCompleteAsync callback.
-     *   4. When the reader thread sees the matching response, it calls future.complete().
-     *
-     * @param msg the message to send (must have a unique requestId)
-     * @return a future that will complete with the server's response
+     * Send a message and return a future for the matching response.
      */
     public CompletableFuture<Message> send(Message msg) {
         CompletableFuture<Message> future = new CompletableFuture<>();
-        pending.put(msg.getRequestId(), future); // register before sending to avoid race
+        pending.put(msg.getRequestId(), future);
         String json = gson.toJson(msg);
-        synchronized (this) { out.println(json); } // synchronized: FX thread may also call send()
+        synchronized (this) { out.println(json); }
         return future;
     }
 
     /**
-     * Blocking convenience wrapper — sends and waits for the response.
-     * NOT for use on the FX thread (would freeze the UI).
-     * Used in tests and background setup tasks.
+     * Send a request and run the completion callback on the JavaFX application thread.
      *
-     * @param timeoutMs maximum milliseconds to wait before TimeoutException
+     * <p>JavaFX controls are not thread-safe. Controllers use this helper for async server calls
+     * so labels, buttons, and table contents are updated only after {@link Platform#runLater(Runnable)}
+     * has moved execution back to the UI thread.</p>
+     */
+    public void sendOnFxThread(Message msg, BiConsumer<Message, Throwable> completion) {
+        send(msg).whenCompleteAsync((response, error) ->
+                Platform.runLater(() -> completion.accept(response, error)));
+    }
+
+    /**
+     * Parse the shared ERROR payload format with this connection's Gson instance.
+     */
+    public String errorMessage(Message msg) {
+        return msg.parsePayload(gson, ErrorResponse.class).message;
+    }
+
+    /**
+     * Blocking wrapper for tests or background work.
+     * Do not call this on the FX thread.
      */
     public Message sendSync(Message msg, long timeoutMs) throws Exception {
         return send(msg).get(timeoutMs, TimeUnit.MILLISECONDS);
@@ -174,16 +165,10 @@ public final class ServerConnection {
     /** Returns the shared Gson instance (used by controllers to parse responses). */
     public Gson getGson() { return gson; }
 
-    // ── Background reader loop ─────────────────────────────────────────────────
+    // Background reader loop
 
     /**
-     * Runs on the server-reader thread.
-     * Reads one JSON line per loop iteration, deserialises it into a Message,
-     * and routes it to either a pending CompletableFuture or the BroadcastListener.
-     *
-     * On IOException (server closed / network error):
-     *   - Completes all pending futures exceptionally so controllers don't hang.
-     *   - The reader thread exits cleanly.
+     * Reads server messages and routes them to a request future or broadcast listener.
      */
     private void readLoop() {
         try (BufferedReader in = new BufferedReader(
@@ -195,8 +180,7 @@ public final class ServerConnection {
             }
         } catch (IOException e) {
             log.warn("Server connection lost: {}", e.getMessage());
-            // Fail all waiting futures so their callbacks run with an exception
-            // rather than hanging forever.
+            // Fail waiting requests instead of leaving their callbacks pending.
             pending.values().forEach(f ->
                     f.completeExceptionally(new IOException("Connection lost")));
             pending.clear();
@@ -204,32 +188,25 @@ public final class ServerConnection {
     }
 
     /**
-     * Route an incoming message to the correct destination.
-     *
-     * If the requestId matches a pending future → it's a response; complete the future.
-     * If no pending future exists → it's a server-push broadcast; dispatch it.
+     * Send responses to their waiting future; treat everything else as a broadcast.
      */
     private void route(Message msg) {
         CompletableFuture<Message> future = pending.remove(msg.getRequestId());
         if (future != null) {
-            future.complete(msg); // wake up the waiting whenCompleteAsync callback
+            future.complete(msg);
         } else {
-            dispatchBroadcast(msg); // no future waiting — must be a broadcast
+            dispatchBroadcast(msg);
         }
     }
 
     /**
-     * Dispatch a server-push broadcast to the registered BroadcastListener.
-     *
-     * Platform.runLater() schedules the callback on the JavaFX Application Thread
-     * because all UI updates (labels, charts, tables) must happen there.
-     * This method runs on the server-reader thread; the actual UI work runs later.
+     * Deliver a broadcast to the UI listener on the JavaFX thread.
      */
     private void dispatchBroadcast(Message msg) {
-        BroadcastListener listener = this.broadcastListener; // read volatile once
-        if (listener == null) return; // no detail screen open — ignore the broadcast
+        BroadcastListener listener = this.broadcastListener;
+        if (listener == null) return;
 
-        Platform.runLater(() -> { // schedule on FX thread
+        Platform.runLater(() -> {
             try {
                 switch (msg.getType()) {
                     case BID_BROADCAST ->

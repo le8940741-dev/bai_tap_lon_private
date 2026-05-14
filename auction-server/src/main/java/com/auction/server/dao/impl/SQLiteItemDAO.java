@@ -13,15 +13,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * FILE ROLE: SQLite implementation of ItemDAO.
+ * JDBC implementation of {@link com.auction.server.dao.ItemDAO} with joins for seller display names.
  *
- * The SELECT queries JOIN the users table to get the seller's username.
- * This denormalisation avoids a second query when displaying items — the
- * sellerName is baked into the Item object at read time.
- *
- * ItemFactory.create(category) is called during mapping to instantiate the
- * correct subclass (Electronics/Art/Vehicle) from the category TEXT column.
- * This is the Factory Method pattern in action within the DAO layer.
+ * <p>Demonstrates how polymorphic {@link com.auction.server.model.Item} instances are rehydrated
+ * from a {@code category} string column using {@link com.auction.server.factory.ItemFactory}.</p>
  */
 public final class SQLiteItemDAO implements ItemDAO {
 
@@ -39,7 +34,7 @@ public final class SQLiteItemDAO implements ItemDAO {
             ps.setString(3, item.getCategory().name()); // "ELECTRONICS", "ART", or "VEHICLE"
             ps.setLong(4, item.getSellerId());
             ps.setString(5, item.getImageUrl());
-            ps.setString(6, item.getExtraData());         // may be null — stored as NULL in DB
+            ps.setString(6, item.getExtraData());         // may be null - stored as NULL in DB
             ps.setString(7, item.getCreatedAt().toString());
             ps.executeUpdate();
             try (ResultSet keys = conn().createStatement().executeQuery("SELECT last_insert_rowid()")) {
@@ -87,17 +82,9 @@ public final class SQLiteItemDAO implements ItemDAO {
         return list;
     }
 
-    /**
-     * Map one ResultSet row to an Item subclass.
-     *
-     * ItemCategory.valueOf() converts the stored TEXT ("ELECTRONICS") back to the enum.
-     * ItemFactory.create(category) then instantiates the correct subclass.
-     * Without the factory, this method would need an if/else or switch on the string —
-     * the factory centralises that logic.
-     */
     private Item map(ResultSet rs) throws SQLException {
         ItemCategory category = ItemCategory.valueOf(rs.getString("category"));
-        Item item = ItemFactory.create(category); // Factory Method — creates Electronics, Art, or Vehicle
+        Item item = ItemFactory.create(category); // Factory Method - creates Electronics, Art, or Vehicle
         item.setId(rs.getLong("id"));
         item.setName(rs.getString("name"));
         item.setDescription(rs.getString("description"));

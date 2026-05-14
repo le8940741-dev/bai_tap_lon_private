@@ -1,34 +1,24 @@
 package com.auction.client.util;
 
-// Alert is JavaFX's built-in dialog for notifications and confirmations.
 import javafx.scene.control.Alert;
-import javafx.scene.control.Alert.AlertType; // ERROR, INFORMATION, CONFIRMATION
-import javafx.scene.control.ButtonType;       // OK, CANCEL — what the user clicked
+import javafx.scene.control.Alert.AlertType;
+import javafx.scene.control.ButtonType;
 
-import java.util.Optional; // wraps the user's button choice (may have closed with X)
+import java.util.Optional;
 
 /**
- * FILE ROLE: Convenience wrapper for JavaFX dialog boxes.
+ * Thin façade around JavaFX {@link Alert} so controllers do not repeat boilerplate styling.
  *
- * Without this utility, every controller would repeat:
- *   Alert a = new Alert(AlertType.ERROR);
- *   a.setTitle(...); a.setHeaderText(null); a.setContentText(...); a.showAndWait();
- *
- * AlertUtil reduces that to: AlertUtil.error("Title", "Message")
- *
- * showAndWait() blocks the FX thread until the user dismisses the dialog —
- * this is intentional for errors (the user must acknowledge) and confirmations
- * (we need the answer before proceeding).
- *
- * USED BY: All controllers for error display and cancel confirmations.
+ * <p>Alerts are always modal ({@code showAndWait}) so the student sees a clear stop in the flow
+ * when validation or the server reports an error.</p>
  */
 public final class AlertUtil {
 
-    private AlertUtil() {} // utility class — no instances
+    private AlertUtil() {}
 
     /**
      * Show a modal error dialog.
-     * Use for: server errors, validation failures, connection problems.
+     * Use this for server errors, validation failures, and connection problems.
      *
      * @param title   the dialog window title bar text
      * @param message the error description shown in the body
@@ -36,14 +26,14 @@ public final class AlertUtil {
     public static void error(String title, String message) {
         Alert alert = new Alert(AlertType.ERROR);
         alert.setTitle(title);
-        alert.setHeaderText(null);   // no secondary title — keep it simple
+        alert.setHeaderText(null);
         alert.setContentText(message);
-        alert.showAndWait();         // blocks until user clicks OK
+        alert.showAndWait();
     }
 
     /**
      * Show a modal information dialog.
-     * Use for: success confirmations (e.g. "Account created!").
+     * Use this for success messages.
      */
     public static void info(String title, String message) {
         Alert alert = new Alert(AlertType.INFORMATION);
@@ -55,7 +45,7 @@ public final class AlertUtil {
 
     /**
      * Show a modal confirmation dialog with OK and Cancel buttons.
-     * Use for: destructive actions (cancel auction, ban user).
+     * Use this before destructive actions such as canceling an auction.
      *
      * @return true if the user clicked OK; false for Cancel or window-close
      */
@@ -65,7 +55,7 @@ public final class AlertUtil {
         alert.setHeaderText(null);
         alert.setContentText(message);
         Optional<ButtonType> result = alert.showAndWait();
-        // isPresent() is false if the user closed the dialog without clicking a button.
+        // Closing the dialog without choosing a button counts as cancel.
         return result.isPresent() && result.get() == ButtonType.OK;
     }
 }

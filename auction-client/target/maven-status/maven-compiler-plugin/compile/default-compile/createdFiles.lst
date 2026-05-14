@@ -6,6 +6,8 @@ com\auction\client\network\ServerConnection.class
 com\auction\client\util\SceneManager$View.class
 com\auction\client\controller\AuctionDetailController$2.class
 com\auction\client\controller\SellerDashboardController.class
+com\auction\client\util\SessionActions.class
+com\auction\client\util\ImageSourceResolver.class
 com\auction\client\controller\AdminController.class
 com\auction\client\session\ClientSession.class
 com\auction\client\ClientMain.class

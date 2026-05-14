@@ -12,35 +12,24 @@ import java.util.List;                         // return type for findAll()
 import java.util.Optional;                     // null-safe single-result container
 
 /**
- * FILE ROLE: SQLite implementation of UserDAO.
+ * JDBC-backed {@link com.auction.server.dao.UserDAO} for SQLite.
  *
- * Every method opens a PreparedStatement (never raw string concatenation —
- * that would allow SQL injection), executes it, and closes it via try-with-resources.
- * The shared Connection is never closed by the DAO; only DatabaseManager manages it.
+ * <p><b>PreparedStatement:</b> Every variable user input is bound with {@code ?} placeholders to
+ * avoid SQL injection. {@link com.auction.server.factory.UserFactory} rebuilds the proper subclass
+ * when reading {@code role} text back from disk.</p>
  *
- * THREAD SAFETY:
- *   All public methods are 'synchronized' on 'this'.  SQLite supports only one
- *   writer at a time.  Synchronizing on the DAO instance serialises concurrent
- *   requests to this table without using a global lock.
- *
- *   Because DatabaseManager.getConnection() is also synchronized, a deadlock
- *   is impossible: the only lock order is DAO → connection-check-lock,
- *   never the reverse.
- *
- * WHY PreparedStatement (not Statement):
- *   PreparedStatement pre-compiles the SQL and binds parameters as typed values.
- *   This prevents SQL injection: user-supplied strings like "'; DROP TABLE users --"
- *   become a literal bind value, not executable SQL.
+ * <p><b>Synchronization:</b> Methods are {@code synchronized} because SQLite allows only one writer
+ * at a time — coarse-grained locking keeps the lab implementation simple.</p>
  */
 public final class SQLiteUserDAO implements UserDAO {
 
-    // Retrieve the shared connection from the Singleton — never store it locally
+    // Retrieve the shared connection from the Singleton - never store it locally
     // because DatabaseManager may re-open it if it was closed.
     private Connection conn() { return DatabaseManager.getInstance().getConnection(); }
 
     @Override
     public synchronized User save(User user) {
-        // INSERT with ? placeholders — values bound via setString/setInt below.
+        // INSERT with ? placeholders - values bound via setString/setInt below.
         String sql = """
             INSERT INTO users (username, password_hash, email, role, active, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -51,8 +40,8 @@ public final class SQLiteUserDAO implements UserDAO {
             ps.setString(1, user.getUsername());
             ps.setString(2, user.getPasswordHash());
             ps.setString(3, user.getEmail());
-            ps.setString(4, user.getRole().name()); // enum → "BIDDER" / "SELLER" / "ADMIN"
-            ps.setInt(5, user.isActive() ? 1 : 0);  // SQLite has no BOOLEAN — use 0/1
+            ps.setString(4, user.getRole().name()); // enum -> "BIDDER" / "SELLER" / "ADMIN"
+            ps.setInt(5, user.isActive() ? 1 : 0);  // SQLite has no BOOLEAN - use 0/1
             ps.setString(6, user.getCreatedAt().toString()); // ISO-8601 string
             ps.executeUpdate();
             try (ResultSet keys = conn().createStatement().executeQuery("SELECT last_insert_rowid()")) {
@@ -70,7 +59,7 @@ public final class SQLiteUserDAO implements UserDAO {
         String sql = "SELECT * FROM users WHERE id = ?";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, id);
-            return Optional.ofNullable(mapSingle(ps.executeQuery())); // null → empty Optional
+            return Optional.ofNullable(mapSingle(ps.executeQuery())); // null -> empty Optional
         } catch (SQLException e) { throw new RuntimeException(e); }
     }
 
@@ -101,7 +90,7 @@ public final class SQLiteUserDAO implements UserDAO {
         } catch (SQLException e) { throw new RuntimeException(e); }
     }
 
-    // ── ResultSet → domain object mapping ─────────────────────────────────────
+    // ResultSet -> domain object mapping
 
     // Reads exactly one row; returns null if the ResultSet is empty.
     // Callers wrap the return in Optional.ofNullable().
@@ -117,15 +106,8 @@ public final class SQLiteUserDAO implements UserDAO {
         return list;
     }
 
-    /**
-     * Convert one ResultSet row to the correct User subclass.
-     *
-     * The role string determines which concrete type to create.
-     * This is where UserFactory's Factory Method is used — we never
-     * call 'new Bidder()' directly here; the factory handles that.
-     */
     private User map(ResultSet rs) throws SQLException {
-        UserRole role = UserRole.valueOf(rs.getString("role")); // "BIDDER" → BIDDER enum
+        UserRole role = UserRole.valueOf(rs.getString("role")); // "BIDDER" -> BIDDER enum
         User user = switch (role) {
             case BIDDER -> new com.auction.server.model.Bidder();
             case SELLER -> new com.auction.server.model.Seller();
@@ -135,7 +117,7 @@ public final class SQLiteUserDAO implements UserDAO {
         user.setUsername(rs.getString("username"));
         user.setPasswordHash(rs.getString("password_hash"));
         user.setEmail(rs.getString("email"));
-        user.setActive(rs.getInt("active") == 1); // 1 → true, 0 → false
+        user.setActive(rs.getInt("active") == 1); // 1 -> true, 0 -> false
         // DateUtil.parse() handles both "2026-04-22T14:32:07" and "2026-04-22 14:32:07"
         user.setCreatedAt(DateUtil.parse(rs.getString("created_at")));
         return user;

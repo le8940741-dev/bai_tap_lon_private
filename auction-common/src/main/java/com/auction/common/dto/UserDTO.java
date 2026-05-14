@@ -1,32 +1,41 @@
 package com.auction.common.dto;
 
 /**
- * FILE ROLE: The wire representation of a user account.
- *
- * WHY A SEPARATE DTO:
- *   The server-side User domain object (in auction-server) contains the
- *   passwordHash field.  We must never send that over the network.
- *   UserDTO deliberately omits it — only safe, public-facing fields are here.
- *
- *   Additionally, the client module does not depend on auction-server at all
- *   (it only depends on auction-common).  DTOs are the bridge: they live in
- *   the shared module so both sides speak the same language.
- *
- * USED BY:
- *   - Server: DtoMapper.toDto(User) converts a domain User → UserDTO before sending.
- *   - Client: ClientSession.currentUser stores the logged-in user as a UserDTO.
- *             Admin panel displays a list of UserDTOs in its TableView.
+ * JSON-safe projection of a persisted {@code User} row for client consumption.
+ * <p>
+ * Security note: password hashes never leave the server process. Authentication results
+ * are conveyed only indirectly via {@link #active} and the presence of this object inside
+ * a successful login response.
+ * </p>
+ * <p>Role strings mirror {@code UserRole} enum names exactly so the JavaFX layer can switch
+ * navigation without additional mapping tables.</p>
  */
 public class UserDTO {
 
-    private long id;        // auto-generated database primary key
-    private String username; // the display name / login name
-    private String email;    // contact address
-    private String role;     // "BIDDER", "SELLER", or "ADMIN" — controls what the user can do
-    private boolean active;  // false = banned; the user cannot log in
+    /** Surrogate primary key from SQLite {@code users.id}. */
+    private long id;
+    /** Unique login identifier; compared case-sensitively on the server. */
+    private String username;
+    /** Stored for display and lightweight validation at registration time. */
+    private String email;
+    /** One of {@code "BIDDER"}, {@code "SELLER"}, {@code "ADMIN"} — mirrors enum name. */
+    private String role;
+    /**
+     * When {@code false}, the account is banned: {@code UserService.login} rejects credentials
+     * with {@code AuthException} and admin UI renders the user as inactive.
+     */
+    private boolean active;
 
-    public UserDTO() {} // required by Gson for deserialisation
+    /** Gson no-arg constructor — required for reflective deserialization. */
+    public UserDTO() {}
 
+    /**
+     * @param id        primary key
+     * @param username  login name
+     * @param email     contact email
+     * @param role      stringified {@code UserRole}
+     * @param active    false if administratively disabled
+     */
     public UserDTO(long id, String username, String email, String role, boolean active) {
         this.id = id;
         this.username = username;
@@ -35,36 +44,31 @@ public class UserDTO {
         this.active = active;
     }
 
-    // ── Getters (no setters on id/role to discourage mutation on the client side) ──
-
-    /** Database-assigned primary key. */
+    /** @return database id; stable for the lifetime of the row */
     public long getId() { return id; }
 
-    /** Login name and display name throughout the UI. */
+    /** @return human-facing handle shown across auction UIs */
     public String getUsername() { return username; }
 
-    /** Email address (displayed in admin panel). */
+    /** @return email string as stored; not re-validated on the client */
     public String getEmail() { return email; }
 
     /**
-     * String representation of the role enum.
-     * The client uses this to decide which screens to show after login:
-     *   "BIDDER" → auction list
-     *   "SELLER" → seller dashboard
-     *   "ADMIN"  → admin panel
+     * @return string form of the user's authorization persona; determines which FXML flows load after login
      */
     public String getRole() { return role; }
 
-    /**
-     * False if an admin has banned this account.
-     * The server rejects logins from inactive users with AuthException.
-     */
+    /** @return {@code true} if the user may authenticate; {@code false} if banned */
     public boolean isActive() { return active; }
 
-    // Setters needed by Gson when deserialising incoming JSON.
+    /** @param id surrogate key assigned by the database */
     public void setId(long id) { this.id = id; }
+    /** @param username new login name — must stay unique server-side */
     public void setUsername(String username) { this.username = username; }
+    /** @param email contact email */
     public void setEmail(String email) { this.email = email; }
+    /** @param role stringified role label */
     public void setRole(String role) { this.role = role; }
+    /** @param active ban flag mirrored from {@code users.active} */
     public void setActive(boolean active) { this.active = active; }
 }

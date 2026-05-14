@@ -1,21 +1,10 @@
 package com.auction.common.dto;
 
 /**
- * FILE ROLE: Wire representation of an auction item.
+ * Gson-friendly view of a catalog item (server domain type {@code Item}) for TCP + JavaFX tables.
  *
- * Items are created by Sellers before an auction is opened.
- * An item can only belong to one seller, but a single item could theoretically
- * be re-auctioned (though the current UI doesn't support re-listing).
- *
- * The 'extraData' field carries category-specific JSON so we don't need
- * separate wire types for Electronics, Art, and Vehicle.  The client can
- * parse it if it wants to display brand, year, artist, etc.
- *
- * USED BY:
- *   - Server: DtoMapper.toDto(Item) produces this from a domain Item.
- *   - AuctionDTO: embeds an ItemDTO so the client never needs a second round-trip
- *     to find out what item is being auctioned.
- *   - SellerDashboardController: lists ItemDTOs in the ComboBox for auction creation.
+ * <p>Strings such as {@code category} duplicate enum names so the client module does not need a
+ * dependency on server-only enums — study how that trade-off simplifies packaging.</p>
  */
 public class ItemDTO {
 
@@ -31,9 +20,9 @@ public class ItemDTO {
 
     public ItemDTO() {} // required by Gson
 
-    // ── Getters ───────────────────────────────────────────────────────────────
+    // Getters
 
-    /** Database primary key — used when creating an auction to reference the item. */
+    /** Database primary key - used when creating an auction to reference the item. */
     public long getId() { return id; }
 
     /** Short title displayed in auction list and detail screens. */
@@ -48,10 +37,10 @@ public class ItemDTO {
      */
     public String getCategory() { return category; }
 
-    /** The seller's User.id — used to verify ownership for cancellation. */
+    /** The seller's User.id - used to verify ownership for cancellation. */
     public long getSellerId() { return sellerId; }
 
-    /** The seller's username — displayed directly without a lookup. */
+    /** The seller's username - displayed directly without a lookup. */
     public String getSellerName() { return sellerName; }
 
     /** Optional image URL or local file path shown on the auction detail screen. */
@@ -67,7 +56,7 @@ public class ItemDTO {
     /** ISO-8601 creation timestamp. */
     public String getCreatedAt() { return createdAt; }
 
-    // ── Setters (needed by Gson) ───────────────────────────────────────────────
+    // Setters (needed by Gson)
     public void setId(long id) { this.id = id; }
     public void setName(String name) { this.name = name; }
     public void setDescription(String description) { this.description = description; }

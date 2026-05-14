@@ -1,6 +1,6 @@
 package com.auction.server.service;
 
-// DAO implementations — the real SQLite ones, not mocks.
+// DAO implementations - the real SQLite ones, not mocks.
 // This is an integration test: we use an actual (temp-file) database.
 import com.auction.server.dao.impl.*;
 
@@ -26,62 +26,32 @@ import java.nio.file.Path;  // represents the temp DB file path
 import java.time.LocalDateTime;
 
 /**
- * FILE ROLE: Integration tests for BidService — the most critical service.
+ * End-to-end style coverage of {@link BidService} against real {@code SQLite*} DAO classes.
  *
- * INTEGRATION TEST (vs. UNIT TEST):
- *   Unlike UserServiceTest which uses a mock DAO, this test uses REAL DAO
- *   implementations backed by a real SQLite database in a temp file.
+ * <p><b>Integration vs unit:</b> {@link com.auction.server.db.DatabaseManager#resetForTesting()} plus a temp file
+ * prove that SQL, locks, and auto-bid priority interact correctly — slower but high confidence.</p>
  *
- *   WHY: BidService's correctness depends on the DAO reading back the exact
- *   state it wrote — a mock DAO can't catch bugs in SQL queries or ResultSet
- *   mapping.  The full stack (BidService → SQLiteBidDAO → SQLite → read back)
- *   must work end-to-end for the bid history and auto-bid resolution to be correct.
- *
- * ISOLATION VIA TEMP FILE:
- *   Each test class gets its own SQLite temp file, created in @BeforeAll.
- *   DatabaseManager is reset before creating the file (resetForTesting()) and
- *   after the tests finish (@AfterAll).  This prevents test state from leaking
- *   into other test classes or into the production "auction.db" file.
- *
- * WINDOWS FILE LOCK HANDLING:
- *   SQLite on Windows holds an OS-level file lock for a brief moment after
- *   connection.close().  The teardown uses a retry loop with 100ms sleeps
- *   to wait for the lock to release before deleting the temp file.
- *   System.gc() hints to the JVM to finalize any lingering references sooner.
- *
- * TEST ORDER:
- *   Tests are ordered with @Order because they share a single auction.
- *   Each test leaves the auction in a specific state that the next test
- *   depends on (e.g. test 1 places the first bid; test 2 tries to outbid it).
- *   @TestMethodOrder(MethodOrderer.OrderAnnotation.class) enforces this order.
- *
- * WHAT WE COVER:
- *   - Manual bid accepted and price updated in DB.
- *   - Bid below current price rejected (BidException).
- *   - Leading bidder cannot bid again (BidException).
- *   - A second bidder can outbid and become the new leader.
- *   - setAutoBid() fires immediately when maxBid > currentPrice.
- *   - getBidHistory() returns all bids in ascending chronological order.
+ * <p><b>Ordered tests:</b> {@link org.junit.jupiter.api.TestMethodOrder} keeps fixture buildup deterministic while still using JUnit 5.</p>
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class) // enforce @Order on test methods
 class BidServiceTest {
 
-    // Path to the temp SQLite file — set in @BeforeAll, deleted in @AfterAll.
+    // Path to the temp SQLite file - set in @BeforeAll, deleted in @AfterAll.
     static Path tempDb;
 
-    // Real DAO instances — all share the same DatabaseManager connection.
+    // Real DAO instances - all share the same DatabaseManager connection.
     static SQLiteUserDAO    userDAO;
     static SQLiteItemDAO    itemDAO;
     static SQLiteAuctionDAO auctionDAO;
     static SQLiteBidDAO     bidDAO;
     static SQLiteAutoBidDAO autoBidDAO;
 
-    // Services under test — AuctionService is needed because BidService
+    // Services under test - AuctionService is needed because BidService
     // calls auctionService.markRunning() and auctionService.applyAntiSnipe().
     static AuctionService auctionService;
     static BidService     bidService;
 
-    // Test fixtures — created once and reused across all test methods.
+    // Test fixtures - created once and reused across all test methods.
     static Bidder  bidder1;  // will be the initial bidder
     static Bidder  bidder2;  // will outbid bidder1
     static Auction auction;  // the auction all tests bid on
@@ -97,7 +67,7 @@ class BidServiceTest {
         // 3. Destroy any existing singleton (from a previous test class or production use).
         DatabaseManager.resetForTesting();
 
-        // 4. Create a fresh DatabaseManager — this runs initSchema() on the temp file.
+        // 4. Create a fresh DatabaseManager - this runs initSchema() on the temp file.
         DatabaseManager.getInstance();
 
         // 5. Instantiate the real DAOs (they all call DatabaseManager.getInstance().getConnection()).
@@ -169,24 +139,15 @@ class BidServiceTest {
                 // Also clean up WAL/SHM sidecar files (present if WAL mode was ever used).
                 Files.deleteIfExists(Path.of(tempDb.toString() + "-wal"));
                 Files.deleteIfExists(Path.of(tempDb.toString() + "-shm"));
-                break; // success — exit the retry loop
+                break; // success - exit the retry loop
             } catch (IOException ignored) {
                 Thread.sleep(100); // wait 100ms and retry
             }
         }
     }
 
-    // ── Test cases ────────────────────────────────────────────────────────────
+    // Test cases
 
-    /**
-     * Test 1: Place a valid bid.
-     *
-     * bidder1 bids $150 on an auction whose current price is $100 (the floor).
-     * Verifies:
-     *   - The returned BidTransaction has the correct amount and bidder.
-     *   - The auction's currentPrice is updated in the database (re-read to confirm).
-     *   - The auction's leadingBidderId is set to bidder1.
-     */
     @Test @Order(1)
     void placeBid_valid_succeedsAndUpdatesPrice() {
         BidTransaction bid = bidService.placeBid(auction.getId(), 150.0, bidder1);
@@ -202,27 +163,14 @@ class BidServiceTest {
                 "Leading bidder must be bidder1");
     }
 
-    /**
-     * Test 2: Bid below current price is rejected.
-     *
-     * After test 1, currentPrice = 150.  A bid of $50 must throw BidException
-     * with a message explaining that the amount must exceed the current price.
-     */
     @Test @Order(2)
     void placeBid_tooLow_throwsBidException() {
-        // $50 is well below the current price of $150 — must be rejected.
+        // $50 is well below the current price of $150 - must be rejected.
         assertThrows(BidException.class,
                 () -> bidService.placeBid(auction.getId(), 50.0, bidder2),
                 "Bid below current price must throw BidException");
     }
 
-    /**
-     * Test 3: The leading bidder cannot bid again.
-     *
-     * After test 1, bidder1 is the leader at $150.  bidder1 trying to bid $200
-     * must throw BidException — they're already winning and can't drive up
-     * their own price.
-     */
     @Test @Order(3)
     void placeBid_alreadyLeading_throwsBidException() {
         // bidder1 is the current leader (from test 1).
@@ -231,12 +179,6 @@ class BidServiceTest {
                 "Leading bidder must not be allowed to bid again");
     }
 
-    /**
-     * Test 4: A second bidder can outbid and become the new leader.
-     *
-     * bidder2 bids $200 — higher than bidder1's $150.  This must succeed and
-     * transfer the lead to bidder2.
-     */
     @Test @Order(4)
     void placeBid_secondBidder_succeedsAndBecomesLeader() {
         BidTransaction bid = bidService.placeBid(auction.getId(), 200.0, bidder2);
@@ -249,15 +191,6 @@ class BidServiceTest {
                 "bidder2 must now be the leading bidder");
     }
 
-    /**
-     * Test 5: setAutoBid() fires immediately when maxBid > currentPrice.
-     *
-     * After test 4, bidder2 leads at $200.  bidder1 registers an auto-bid
-     * with maxBid=$300 and increment=$10.  The auto-bid should fire immediately
-     * because $300 > $200 (current price).  After resolution:
-     *   - bidder1 should be the leader (auto-bid outbid bidder2).
-     *   - currentPrice should be $210 (200 + 10 increment).
-     */
     @Test @Order(5)
     void setAutoBid_firesImmediately_whenCurrentPriceBelowMax() {
         bidService.setAutoBid(auction.getId(), 300.0, 10.0, bidder1);
@@ -271,14 +204,6 @@ class BidServiceTest {
                 "bidder1 must be the leader after auto-bid fires");
     }
 
-    /**
-     * Test 6: getBidHistory() returns all bids in ascending time order.
-     *
-     * At this point, the auction has had several bids (from tests 1, 4, 5).
-     * The history must be non-empty and sorted earliest-first.
-     *
-     * Ascending order matters for the price chart: points must be left-to-right.
-     */
     @Test @Order(6)
     void getBidHistory_returnsAllBids_inAscendingOrder() {
         var history = bidService.getBidHistory(auction.getId());

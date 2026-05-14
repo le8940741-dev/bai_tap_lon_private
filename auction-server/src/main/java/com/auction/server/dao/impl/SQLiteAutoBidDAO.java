@@ -11,18 +11,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * FILE ROLE: SQLite implementation of AutoBidDAO.
+ * Stores auto-bid ceilings per (auction, bidder) pair using UPSERT semantics.
  *
- * The key feature here is the UPSERT in save():
- *   ON CONFLICT(auction_id, bidder_id) DO UPDATE SET ...
- *
- * This means if the same bidder calls setAutoBid() twice for the same auction,
- * the second call simply updates the existing row (raising their ceiling)
- * rather than creating a duplicate row.  The UNIQUE constraint on
- * (auction_id, bidder_id) enforces one auto-bid configuration per bidder per auction.
- *
- * The deactivate() method sets active=0 instead of deleting the row,
- * preserving the historical record of what the bidder's ceiling was.
+ * <p>SQLite’s {@code INSERT ... ON CONFLICT DO UPDATE} keeps one row per bidder even if they
+ * tweak settings repeatedly — study {@link #save} for a transactional pattern example.</p>
  */
 public final class SQLiteAutoBidDAO implements AutoBidDAO {
 
@@ -67,7 +59,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
             ORDER BY ab.registered_at ASC
         """;
         // active = 1 filter: exhausted auto-bids are invisible to the algorithm.
-        // ASC order: earlier registrations win ties — read in tie-break order already.
+        // ASC order: earlier registrations win ties - read in tie-break order already.
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             ps.setLong(1, auctionId);
             return mapList(ps.executeQuery());
@@ -92,7 +84,7 @@ public final class SQLiteAutoBidDAO implements AutoBidDAO {
 
     @Override
     public synchronized void deactivate(long autoBidId) {
-        // Set active=0 — the row is kept for audit purposes but no longer queried
+        // Set active=0 - the row is kept for audit purposes but no longer queried
         // by findActiveByAuctionId().
         try (PreparedStatement ps = conn().prepareStatement(
                 "UPDATE auto_bids SET active = 0 WHERE id = ?")) {
